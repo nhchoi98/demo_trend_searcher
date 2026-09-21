@@ -12,6 +12,45 @@ arXiv 수집 → 이미 본 논문 제외 → 루프 1: 판정(Jev) → 루프 2
 
 서버와 DB가 없습니다. GitHub Actions가 하루 한 번 실행하고, 상태는 `data/*.jsonl`로 레포에 커밋됩니다.
 
+## 논문 하나는 어떻게 판정되나
+
+논문마다 Jev를 한 번 호출하고, 그 호출에 질문 15개를 함께 보냅니다. 판단은 전부 Jev가 하고, 코드는 답을 합치기만 합니다. 핵심 질문 세 개는 이렇습니다.
+
+| 질문 | Jev에게 묻는 것 | 선택지 | 답이 쓰이는 곳 |
+| --- | --- | --- | --- |
+| `label` | "이 논문이 `interest`에 얼마나 관련 있나?" | core(관심사 그 자체) / adjacent(인접 분야, 구체적 연결 있음) / irrelevant(어휘만 겹침). 코드에 고정 | **리포트 포함 여부.** core와 adjacent 확률의 합이 0.5 이상이면 후보. 확신이 낮으면 "경계" 표시 |
+| `topic` | "다음 토픽 중 어디에 속하나?" | `finder.config.ts`의 `topics` 세 개(각 `description`이 설명으로 붙음) + none | 리포트에서 논문 옆에 표시되는 분류. 포함 여부에는 영향 없음 |
+| `contribution` | "어떤 종류의 기여인가?" | method / model-release / dataset-benchmark / survey / application / analysis. 코드에 고정 | 리포트 표기. 포함 여부에는 영향 없음 |
+
+`topic`의 선택지가 되는 `topics`는 `finder.config.ts`에 이렇게 있습니다. `description`이 Jev에게 선택지 설명으로 그대로 가고, `title`은 리포트 표시용, `phrases`는 Jev와 무관하게 "키워드 검색이었다면 걸렸을까"를 로컬에서 계산하는 데만 씁니다.
+
+```ts
+topics: [
+  {
+    key: "world-model",
+    title: "World Models",
+    description: "Learned models of environment dynamics: world models, video or latent simulators, world foundation models.",
+    phrases: ["world model", "world models", "world foundation model", "learned simulator"],
+  },
+  {
+    key: "physical-ai",
+    title: "Physical AI / Embodied AI",
+    description: "Agents that perceive and act in the physical world: robot learning, vision-language-action models, embodied reasoning, autonomous driving.",
+    phrases: ["physical AI", "embodied AI", "vision-language-action", "robot foundation model"],
+  },
+  {
+    key: "nvidia-cosmos",
+    title: "NVIDIA Cosmos",
+    description: "Work that builds on, evaluates or extends the NVIDIA Cosmos models (Predict, Transfer, Reason) or their tooling.",
+    phrases: ["NVIDIA Cosmos", "Cosmos-Predict", "Cosmos-Transfer", "Cosmos-Reason", "Cosmos world foundation"],
+  },
+],
+```
+
+Jev가 받는 `topic` 질문은 "Which one of these topics does the paper belong to?"이고, 선택지는 위 `key` 세 개에 각 `description`이 붙은 것과 `none: "None of the topics above."`입니다.
+
+나머지 12개는 중요도(`significance`, 0~3점)와 태그 11개(각각 예/아니오)입니다. Jev는 모든 답에 확률을 붙여 돌려주고, 코드가 `label` 확률로 포함 여부를, `label`·`significance`·저자 h-index로 읽을 순서(priority)를 계산합니다. 관심 분야를 바꾸려면 `finder.config.ts`의 `interest` 문장, `topics`, `tags`를 고치면 됩니다. 이 문구들이 그대로 질문이 됩니다. 계산식과 실제 요청·응답 예시는 아래 "루프 1" 섹션에 있습니다.
+
 ## 처리 흐름
 
 ```mermaid
@@ -136,7 +175,7 @@ SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사�
 | 질문 | 타입 | 쓰임 |
 | --- | --- | --- |
 | `label` | choice: core / adjacent / irrelevant | 리포트 포함 여부와 "경계" 표시 |
-| `topic` | choice: 설정의 토픽 + none | 리포트 섹션 |
+| `topic` | choice: `finder.config.ts`의 `topics` 각 `description` + none | 논문별 메타데이터 줄에 토픽 이름 표시 |
 | `contribution` | choice: method / model-release / dataset-benchmark / survey / application / analysis | 리포트 표기 |
 | `significance` | score: 4단계 | 우선순위 |
 | `tag:<키>` × 태그 수 | noul (예/아니오 확률) | 확률이 `gate.tagThreshold` 이상이면 태그 부여 |
