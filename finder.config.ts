@@ -60,7 +60,7 @@ export default defineConfig({
   gate: {
     include: ["core", "adjacent"],
     includeThreshold: 0.5,
-    borderlineBelow: 0.7,
+    borderlineBelow: 0.85,
     escalate: false,
     tagThreshold: 0.5,
     priorityWeights: { label: 0.6, significance: 0.4, author: 0.15 },

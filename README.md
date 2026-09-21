@@ -42,17 +42,17 @@ How relevant is this paper to that interest? Most papers are unfiltered daily su
 판단 대상은 논문의 제목·카테고리·초록뿐입니다. Jev는 문장 대신 세 선택지의 확률 분포를 돌려줍니다.
 
 ```json
-"label": { "type": "choice", "choice": "core", "confidence": 0.91,
+"label": { "type": "choice", "choice": "core", "confidence": 0.78,
            "probabilities": { "core": 0.85, "adjacent": 0.10, "irrelevant": 0.05 } }
 ```
 
-`choice`는 확률이 가장 높은 것, `probabilities`는 세 개 전체의 분포, `confidence`는 분포가 얼마나 한쪽으로 쏠렸는지입니다. 코드는 이 답으로 세 가지를 정합니다.
+`choice`는 확률이 가장 높은 것, `probabilities`는 세 개 전체의 분포, `confidence`는 분포가 얼마나 한쪽으로 쏠렸는지입니다. TypeSafe 문서의 정의는 선택지 n개일 때 (n × 최대 확률 − 1) / (n − 1)이라, 3지선다에서 최대 확률 0.85면 (3 × 0.85 − 1) / 2 = 0.78입니다. 셋이 고르게 1/3씩이면 0, 한쪽에 몰리면 1입니다. 요청에서 confidence를 위해 보내는 건 없고 응답에만 붙어 옵니다. 코드는 이 답으로 세 가지를 정합니다.
 
 1. **포함 확률** = core + adjacent = 0.95. 0.5 이상이면 후보입니다. `choice`만 보지 않고 분포를 더하므로 core 0.3 · adjacent 0.3 · irrelevant 0.4처럼 1등이 irrelevant인 논문도 관련 쪽 합 0.6으로 잡힙니다.
 2. **기대 관련도** = core×1 + adjacent×0.5 = 0.90. priority의 첫 항입니다.
-3. **경계** = 후보인데 confidence가 0.7 미만이면 "경계(직접 판단 필요)" 표시.
+3. **경계** = 후보인데 confidence가 0.85 미만(3지선다에서 최대 확률 0.9 미만)이면 "경계(직접 판단 필요)" 표시.
 
-리포트에 찍히는 `core (0.91)`이 `choice`와 `confidence`입니다. 라벨이 이상하게 붙으면 고칠 곳은 `interest` 문장이 먼저이고, 선택지 설명을 바꾸려면 `triage.ts`입니다.
+리포트에 찍히는 `core (0.78)`이 `choice`와 `confidence`입니다. 라벨이 이상하게 붙으면 고칠 곳은 `interest` 문장이 먼저이고, 선택지 설명을 바꾸려면 `triage.ts`입니다.
 
 ### `topic`의 선택지
 
@@ -131,10 +131,10 @@ flowchart TD
 6. **종합.** 모델이 아니라 코드(`combine()` in `src/loops/triage.ts`)가 답들을 숫자로 합칩니다. Jev에게 "앞의 답을 보고 최종 판단해 줘"라고 다시 묻지 않습니다. 가중치가 프롬프트 속에 숨지 않고, 실행마다 결과가 흔들리지 않으며, 원본 확률이 로그에 남아 있으니 숫자를 바꾸면 이전 판정도 다시 계산해 볼 수 있습니다. 네 가지를 계산합니다.
    - **포함 확률** = P(core) + P(adjacent). `label`의 확률 분포에서 "관련 있다" 쪽의 합입니다. 1등 라벨만 보지 않으므로 core 0.3 · adjacent 0.3 · irrelevant 0.4처럼 갈린 논문도 0.6으로 잡힙니다.
    - **priority** = 세 신호의 가중 평균입니다. 기대 관련도(P(core)×1 + P(adjacent)×0.5, 가중치 0.6), 중요도(significance ÷ 3, 가중치 0.4), 저자 실적(h-index ÷ 40, 최대 1, 가중치 0.15). 가중치 합으로 나누므로 0~1 사이입니다. h-index를 모르는 논문은 그 항과 가중치를 함께 빼고 나머지 둘로 평균합니다. 모르는 것을 0점으로 치면 색인이 늦은 논문이 전부 불이익을 받기 때문입니다.
-   - **경계** = 포함됐지만 `label`의 confidence가 0.7 미만. confidence는 관련도가 아니라 분포가 얼마나 한쪽으로 쏠렸는지입니다. "확실히 adjacent"도 confidence는 높습니다. 경계는 탈락이 아니라 표시이고, 읽는 사람이 최종 판단합니다.
+   - **경계** = 포함됐지만 `label`의 confidence가 0.85 미만(최대 확률 0.9 미만). confidence는 관련도가 아니라 분포가 얼마나 한쪽으로 쏠렸는지입니다. "확실히 adjacent"도 confidence는 높습니다. 경계는 탈락이 아니라 표시이고, 읽는 사람이 최종 판단합니다.
    - **태그** = 11개 예/아니오 질문 중 "예" 확률이 0.5 이상인 것. 여러 개가 붙을 수 있고, 포함 여부나 순서에는 영향이 없습니다.
 
-   예를 들어 Jev가 `label` core 0.85 · adjacent 0.10 · irrelevant 0.05 (confidence 0.91), `significance` 1.6, `tag:vla` 0.08을 돌려주고 저자 h-index가 20이면:
+   예를 들어 Jev가 `label` core 0.85 · adjacent 0.10 · irrelevant 0.05 (confidence 0.78), `significance` 1.6, `tag:vla` 0.08을 돌려주고 저자 h-index가 20이면:
 
    | 계산 | 식 | 값 |
    | --- | --- | --- |
@@ -143,7 +143,7 @@ flowchart TD
    | 중요도 정규화 | 1.6 ÷ 3 | 0.53 |
    | 저자 항 | min(20, 40) ÷ 40 | 0.50 |
    | priority | (0.6×0.90 + 0.4×0.53 + 0.15×0.50) ÷ (0.6 + 0.4 + 0.15) | 0.72 |
-   | 경계 | 0.91 < 0.7 ? | 아니오 |
+   | 경계 | 0.78 < 0.85 ? | 예, 통과했다면 경계 표시 |
    | 태그 | 0.08 ≥ 0.5 ? | vla 없음 |
 
    포함 확률 0.95는 기준(0.5)을 넘지만 priority 0.72가 하한(0.82)에 못 미쳐 이 논문은 7번에서 탈락합니다. 관련은 확실한데 기여도가 중간이라서입니다. h-index를 몰랐다면 (0.54 + 0.21) ÷ 1.0 = 0.75로 역시 탈락입니다.
@@ -255,7 +255,7 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 {
   "model": "jev-1.13.0",
   "answers": {
-    "label": { "type": "choice", "choice": "core", "confidence": 0.91,
+    "label": { "type": "choice", "choice": "core", "confidence": 0.78,
                "probabilities": { "core": 0.85, "adjacent": 0.10, "irrelevant": 0.05 } },
     "significance": { "type": "score", "score": 1.6, "confidence": 0.55 },
     "tag:vla": { "type": "noul", "noul": 0.08 }
@@ -271,7 +271,7 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 **판정을 종합하는 단계는 모델이 아니라 코드입니다** (`combine()` in `src/loops/triage.ts`). TypeSafe 문서가 권하는 방식(composite scoring)이기도 합니다. 가중치가 눈에 보이고, 결과가 마음에 안 들면 프롬프트가 아니라 숫자를 고치면 됩니다. Jev는 숫자 비교와 여러 단계를 거치는 추론에 약하다고 문서에 명시되어 있어서, 앞선 판정 결과를 다시 Jev에 넣어 종합시키는 구조는 피했습니다.
 
 - **포함 여부**: `label`의 확률 분포에서 `gate.include` 라벨들의 확률을 더한 값이 `gate.includeThreshold`(0.5) 이상이면 포함합니다. 1등 라벨만 보지 않으므로, core 0.3 · adjacent 0.3 · irrelevant 0.4처럼 갈린 논문도 놓치지 않습니다. 이 값은 `papers.jsonl`의 `includeProbability`로 남아서, 나중에 다른 임계값을 적용했으면 어땠을지 다시 계산할 수 있습니다.
-- **경계 표시**: 포함됐지만 `label`의 confidence가 `gate.borderlineBelow`(0.7)보다 낮으면 리포트에 "경계(직접 판단 필요)"로 표시합니다.
+- **경계 표시**: 포함됐지만 `label`의 confidence가 `gate.borderlineBelow`(0.85, 3지선다에서 최대 확률 0.9 미만)보다 낮으면 리포트에 "경계(직접 판단 필요)"로 표시합니다.
 - **우선순위**: 세 신호를 `gate.priorityWeights`로 가중 평균합니다. 기대 관련도(core 1, adjacent 0.5를 확률로 가중, 가중치 0.6), 정규화한 significance(0.4), 그리고 저자 실적(0.15)입니다. 저자 실적은 실행 시작 때 Semantic Scholar 배치 API로 논문별 저자 최대 h-index를 받아 `gate.authorHIndexCap`(40)으로 나눈 0~1 값입니다. Jev와 무관한 유일한 외부 신호입니다. **모르는 값은 0이 아니라 제외입니다.** 아직 색인되지 않은 논문(제출 후 며칠은 흔합니다)이나 API 실패 시엔 그 항을 빼고 나머지로 평균하므로 불이익이 없습니다. `author: 0`이면 조회 자체를 하지 않습니다. 결과가 `gate.minPriority`(0.82) 미만이면 라벨이 통과해도 리포트에 싣지 않습니다. 하루치 리포트 분량을 조절하는 손잡이입니다. 0이면 끕니다.
 
 **확신이 낮은 논문을 GPT로 재판정하지 않습니다.** Jev의 "잘 모르겠다"는 확률 분포에서 나온 보정된 신호인데, 재판정은 그것을 GPT가 스스로 적어낸 숫자로 덮어씁니다. 판정자가 둘이 되면 쌓이는 데이터의 기준도 섞입니다. 오판정 비용이 낮은 작업이라 마지막 판단은 읽는 사람에게 맡겼습니다. 두 백엔드를 나란히 비교하는 실험을 할 때만 `gate.escalate: true`로 켜세요. 그러면 경계 논문에 같은 질문을 GPT에도 묻고, 두 호출이 같은 `inputHash`로 `decisions.jsonl`에 남습니다.

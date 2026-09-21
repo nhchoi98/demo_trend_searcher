@@ -54,7 +54,7 @@ export interface FinderConfig {
     /**
      * Reported papers whose label confidence is below this are marked as borderline in
      * the report, so the reader makes the final call. (Jev derives confidence from its
-     * probability distribution: for 3 options, 0.7 means the top option holds 80%.)
+     * probability distribution: for 3 options, confidence = (3 × top − 1) / 2, so 0.85 means the top option holds 90%.)
      */
     borderlineBelow: number;
     /**
