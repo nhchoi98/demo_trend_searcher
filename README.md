@@ -55,11 +55,25 @@ flowchart TD
 3. **비용 상한.** 남은 신규 논문을 최신순으로 정렬해 앞에서 `gate.maxNewPerRun`(1500)건만 이번 실행에 넣습니다. 넘친 논문은 기록하지 않으므로 다음 실행이 다시 봅니다.
 4. **저자 실적 조회.** 이번 배치의 arXiv id 전부를 Semantic Scholar 배치 API에 한 번에 보내 논문별 저자 최대 h-index를 받습니다. 제출 후 며칠은 색인이 안 된 논문이 많은데, 그런 논문은 이 값이 없는 채로 다음 단계로 갑니다. API가 실패해도 경고만 남기고 실행은 계속됩니다.
 5. **루프 1, 판정.** 논문마다 Jev를 한 번 호출하고 질문 15개를 함께 보냅니다. 관련도(core / adjacent / irrelevant), 토픽, 기여 유형, 중요도(0~3), 태그 11개의 예/아니오입니다. Jev는 각 답에 확률을 붙여 돌려줍니다. 최대 8건(`concurrency`)을 동시에 처리하고, 호출 하나하나가 `data/decisions.jsonl`에 한 줄로 남습니다.
-6. **종합.** 모델이 아니라 코드(`combine()`)가 답들을 숫자로 합칩니다.
-   - 포함 확률 = P(core) + P(adjacent).
-   - priority = 관련도(0.6) · 중요도(0.4) · 저자 h-index(0.15, 40에서 포화)의 가중 평균. h-index를 모르는 논문은 그 항을 빼고 나머지로 평균합니다.
-   - 경계 = 포함됐지만 라벨 confidence가 0.7 미만.
-   - 태그 = "예" 확률이 0.5 이상인 것.
+6. **종합.** 모델이 아니라 코드(`combine()` in `src/loops/triage.ts`)가 답들을 숫자로 합칩니다. Jev에게 "앞의 답을 보고 최종 판단해 줘"라고 다시 묻지 않습니다. 가중치가 프롬프트 속에 숨지 않고, 실행마다 결과가 흔들리지 않으며, 원본 확률이 로그에 남아 있으니 숫자를 바꾸면 이전 판정도 다시 계산해 볼 수 있습니다. 네 가지를 계산합니다.
+   - **포함 확률** = P(core) + P(adjacent). `label`의 확률 분포에서 "관련 있다" 쪽의 합입니다. 1등 라벨만 보지 않으므로 core 0.3 · adjacent 0.3 · irrelevant 0.4처럼 갈린 논문도 0.6으로 잡힙니다.
+   - **priority** = 세 신호의 가중 평균입니다. 기대 관련도(P(core)×1 + P(adjacent)×0.5, 가중치 0.6), 중요도(significance ÷ 3, 가중치 0.4), 저자 실적(h-index ÷ 40, 최대 1, 가중치 0.15). 가중치 합으로 나누므로 0~1 사이입니다. h-index를 모르는 논문은 그 항과 가중치를 함께 빼고 나머지 둘로 평균합니다. 모르는 것을 0점으로 치면 색인이 늦은 논문이 전부 불이익을 받기 때문입니다.
+   - **경계** = 포함됐지만 `label`의 confidence가 0.7 미만. confidence는 관련도가 아니라 분포가 얼마나 한쪽으로 쏠렸는지입니다. "확실히 adjacent"도 confidence는 높습니다. 경계는 탈락이 아니라 표시이고, 읽는 사람이 최종 판단합니다.
+   - **태그** = 11개 예/아니오 질문 중 "예" 확률이 0.5 이상인 것. 여러 개가 붙을 수 있고, 포함 여부나 순서에는 영향이 없습니다.
+
+   예를 들어 Jev가 `label` core 0.85 · adjacent 0.10 · irrelevant 0.05 (confidence 0.91), `significance` 1.6, `tag:vla` 0.08을 돌려주고 저자 h-index가 20이면:
+
+   | 계산 | 식 | 값 |
+   | --- | --- | --- |
+   | 포함 확률 | 0.85 + 0.10 | 0.95 |
+   | 기대 관련도 | 0.85×1 + 0.10×0.5 | 0.90 |
+   | 중요도 정규화 | 1.6 ÷ 3 | 0.53 |
+   | 저자 항 | min(20, 40) ÷ 40 | 0.50 |
+   | priority | (0.6×0.90 + 0.4×0.53 + 0.15×0.50) ÷ (0.6 + 0.4 + 0.15) | 0.72 |
+   | 경계 | 0.91 < 0.7 ? | 아니오 |
+   | 태그 | 0.08 ≥ 0.5 ? | vla 없음 |
+
+   포함 확률 0.95는 기준(0.5)을 넘지만 priority 0.72가 하한(0.82)에 못 미쳐 이 논문은 7번에서 탈락합니다. 관련은 확실한데 기여도가 중간이라서입니다. h-index를 몰랐다면 (0.54 + 0.21) ÷ 1.0 = 0.75로 역시 탈락입니다.
 7. **탈락.** 포함 확률이 0.5 미만이거나 priority가 0.82 미만이면 여기서 끝입니다. id·라벨·confidence·포함 확률만 `papers.jsonl`에 즉시 기록합니다. 실행이 중간에 죽어도 이미 판정한 수백 건을 다시 판정하지 않기 위해서입니다.
 8. **루프 2, 요약.** 통과한 논문만 GPT에 보냅니다. 제목과 초록만 주고, 설정 언어로 한 줄 요약과 문제·방법·결과·의의 한 문단을 받습니다. 링크·저자·인용은 쓰지 말라고 지시합니다. 모델이 지어낸 URL을 막기 위해서입니다.
 9. **기록.** 요약이 모두 끝난 뒤, 통과한 논문 전체를 제목·URL·토픽·태그·priority 등 전체 필드로 `papers.jsonl`에 한꺼번에 기록합니다. 게시보다 먼저 저장하므로 게시가 실패해도 내일 같은 논문이 다시 올라가지 않습니다. 5번이나 8번에서 실패한 논문은 어디에도 기록되지 않아 다음 실행이 다시 시도합니다.
@@ -126,6 +140,60 @@ SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사�
 | `contribution` | choice: method / model-release / dataset-benchmark / survey / application / analysis | 리포트 표기 |
 | `significance` | score: 4단계 | 우선순위 |
 | `tag:<키>` × 태그 수 | noul (예/아니오 확률) | 확률이 `gate.tagThreshold` 이상이면 태그 부여 |
+
+### Jev에 실제로 보내는 것과 받는 것
+
+Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정한 선택지 위에 확률 분포를 출력합니다. 그래서 요청은 프롬프트 한 덩어리가 아니라 "무엇을 볼지"(`state`)와 "무엇 중에 고를지"(`questions`)로 나뉩니다. `src/llm/jev.ts`가 보내는 요청을 JSON으로 펼치면 이렇습니다. 실제로는 질문 15개가 들어가지만 세 종류만 하나씩 보입니다.
+
+```json
+{
+  "model": "jev-latest",
+  "state": {
+    "title": "ZYT-World: A Real-Time Controllable World Model ...",
+    "categories": ["cs.CV", "cs.RO"],
+    "abstract": "..."
+  },
+  "questions": {
+    "label": {
+      "type": "choice",
+      "instructions": "A reader follows this research interest: <interest 전문> How relevant is this paper to that interest? Most papers are unfiltered daily submissions, so most are irrelevant.",
+      "criteria": {
+        "core": "Directly about the interest; the reader would want to read it.",
+        "adjacent": "A neighbouring area with a concrete, stated link to the interest.",
+        "irrelevant": "No real link to the interest, or only shared vocabulary."
+      }
+    },
+    "significance": {
+      "type": "score",
+      "instructions": "Judging only from what the abstract claims, how significant is the contribution for someone following the area?",
+      "criteria": ["Incremental: ...", "Solid: ...", "Notable: ...", "Potentially field-shaping: ..."]
+    },
+    "tag:vla": {
+      "type": "noul",
+      "instructions": "Is this statement true of the paper? The paper proposes, trains or evaluates a vision-language-action model."
+    }
+  }
+}
+```
+
+`state`에는 제목·카테고리·초록만 넣습니다. 저자, 날짜, 링크는 판단과 무관해서 뺍니다. 응답은 질문 이름별로 숫자만 옵니다.
+
+```json
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "label": { "type": "choice", "choice": "core", "confidence": 0.91,
+               "probabilities": { "core": 0.85, "adjacent": 0.10, "irrelevant": 0.05 } },
+    "significance": { "type": "score", "score": 1.6, "confidence": 0.55 },
+    "tag:vla": { "type": "noul", "noul": 0.08 }
+  },
+  "usage": { "input_tokens": 812 }
+}
+```
+
+문장이 한 줄도 없으니 파싱할 것도, 형식이 깨질 것도 없습니다. `jev.ts`의 응답 처리는 질문마다 답이 있고 타입이 맞는지 확인한 뒤 그대로 넘기는 게 전부이고, 답이 빠지거나 타입이 다르면 에러를 냅니다. 이 원본 답이 `data/decisions.jsonl`에 호출당 한 줄로 남습니다.
+
+이 파이프라인이 Jev에 맡기는 일은 하나뿐입니다. "이 텍스트가 각 선택지에 얼마나 해당하는가"를 확률로 매기는 것. 무엇을 물을지(문구), 무엇 중에 고를지(선택지), 답을 어떻게 합칠지(가중치와 임계값)는 전부 `finder.config.ts`와 코드에 있습니다.
 
 **판정을 종합하는 단계는 모델이 아니라 코드입니다** (`combine()` in `src/loops/triage.ts`). TypeSafe 문서가 권하는 방식(composite scoring)이기도 합니다. 가중치가 눈에 보이고, 결과가 마음에 안 들면 프롬프트가 아니라 숫자를 고치면 됩니다. Jev는 숫자 비교와 여러 단계를 거치는 추론에 약하다고 문서에 명시되어 있어서, 앞선 판정 결과를 다시 Jev에 넣어 종합시키는 구조는 피했습니다.
 
