@@ -22,7 +22,7 @@ flowchart TD
     C -- 배치 --> E
 
     subgraph L1[루프 1: 판정 · 논문당 1회 호출]
-        E[질문 15개 fan-out<br/>label · topic · contribution<br/>significance · tag × 11] --> F[Jev<br/>TYPESAFE_API_KEY 없으면 OpenAI]
+        E[질문 15개 fan-out<br/>label · topic · contribution<br/>significance · tag × 11] --> F[TypeSafe Jev]
         F --> G[combine · 코드<br/>포함 확률 · 경계 · 우선순위 · 태그]
     end
 
@@ -32,12 +32,12 @@ flowchart TD
     I -- 예 --> K
 
     subgraph L2[루프 2: 요약]
-        K[GPT · 제목과 초록만 사용<br/>한 줄 요약 + 문제·방법·결과·의의]
+        K[GPT · 제목과 초록만 사용<br/>한 줄 요약 + 문제·방법·결과·의의<br/>링크·저자·인용은 쓰지 않음]
     end
 
     K --> M[(papers.jsonl<br/>요약 완료 후 일괄 기록)]
-    M --> N[reports/날짜.md<br/>레퍼런스는 피드 메타데이터로만]
-    N --> O[Teams Adaptive Card<br/>TEAMS_WEBHOOK_URL 있을 때]
+    M --> N[reports/날짜.md<br/>논문마다 arXiv 링크 + References<br/>피드 메타데이터로 프로그램이 붙임]
+    N --> O[Teams Adaptive Card<br/>제목 클릭 → arXiv, Full report 버튼<br/>TEAMS_WEBHOOK_URL 있을 때]
     N --> P[GitHub Actions가<br/>data/ · reports/ 커밋]
 
     F -. 실패 .-> Q[기록하지 않음<br/>다음 실행에서 재시도]
@@ -52,9 +52,9 @@ flowchart TD
 2. **Actions 탭에서 워크플로를 활성화합니다.** fork한 레포는 예약 워크플로가 기본으로 꺼져 있습니다.
 3. Settings → Secrets and variables → Actions에 등록합니다.
    - Secret `OPENAI_API_KEY` (필수. 요약에 씁니다)
-   - Secret `TYPESAFE_API_KEY` (권장. 있으면 루프 1이 Jev로 돌고, 없으면 OpenAI로 대신합니다)
+   - Secret `TYPESAFE_API_KEY` (필수. 루프 1 판정에 씁니다)
    - Secret `TEAMS_WEBHOOK_URL` (선택. 없으면 마크다운 리포트만 남깁니다)
-   - Variable `FINDER_JEV_MODEL`, `FINDER_DECIDE_MODEL`, `FINDER_ESCALATE_MODEL`, `FINDER_SUMMARY_MODEL` (선택. 모델 교체용)
+   - Variable `FINDER_JEV_MODEL`, `FINDER_ESCALATE_MODEL`, `FINDER_SUMMARY_MODEL` (선택. 모델 교체용)
    - `REPORT_BASE_URL` (선택. Teams 카드의 "Full report" 링크 기준 URL. Actions 안에서는 레포 주소에서 자동으로 만들어지므로 로컬에서 Teams까지 테스트할 때만 필요합니다)
 4. `finder.config.ts`에서 주제, 태그, 관심사 설명을 자기 것으로 바꿉니다.
 5. Actions 탭에서 `daily-finder`를 수동 실행(Run workflow)해 확인합니다.
@@ -81,7 +81,7 @@ SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사�
 | --- | --- |
 | 0 | 정상. 통과한 논문이 없는 날도 0입니다 |
 | 1 | 상태는 저장했지만 Teams 게시가 실패했거나, 판정을 시도한 논문이 전부 실패했습니다 |
-| 2 | 사용법 오류이거나 `OPENAI_API_KEY`가 없습니다 |
+| 2 | 사용법 오류이거나 `OPENAI_API_KEY`·`TYPESAFE_API_KEY`가 없습니다 |
 
 `pnpm test`는 Node 내장 테스트 러너로 돕니다. 외부 호출 없이 arXiv 응답 픽스처(`test/fixtures/arxiv-feed.xml`)와 가짜 백엔드로 파이프라인 전체(판정 → 요약 → 저장 → 다음 실행에서 중복 제외), `combine()`의 임계값·가중치 계산, Jev SDK 요청·응답 변환을 확인합니다.
 

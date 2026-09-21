@@ -75,10 +75,8 @@ export interface FinderConfig {
     maxNewPerRun: number;
   };
   models: {
-    /** TypeSafe model for loop 1. Used when TYPESAFE_API_KEY is set. */
+    /** TypeSafe model for loop 1. */
     jev: string;
-    /** OpenAI model for loop 1 when there is no TypeSafe key. */
-    decide: string;
     escalate: string;
     summary: string;
   };
@@ -104,7 +102,6 @@ export function applyEnv(config: FinderConfig, env: NodeJS.ProcessEnv): FinderCo
     ...config,
     models: {
       jev: env.FINDER_JEV_MODEL || config.models.jev,
-      decide: env.FINDER_DECIDE_MODEL || config.models.decide,
       escalate: env.FINDER_ESCALATE_MODEL || config.models.escalate,
       summary: env.FINDER_SUMMARY_MODEL || config.models.summary,
     },

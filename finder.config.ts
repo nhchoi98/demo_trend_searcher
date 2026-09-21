@@ -69,12 +69,10 @@ export default defineConfig({
     maxNewPerRun: 1500,
   },
 
-  // Loop 1 runs on Jev when TYPESAFE_API_KEY is set. Without a TypeSafe key, `decide`
-  // takes Jev's place. `escalate` is only used when gate.escalate is turned on.
-  // Override with FINDER_*_MODEL env vars and check your account's model list.
+  // Loop 1 runs on Jev, loop 2 on OpenAI. `escalate` is only used when gate.escalate
+  // is turned on. Override with FINDER_*_MODEL env vars and check your account's model list.
   models: {
     jev: "jev-latest",
-    decide: "gpt-5-mini",
     escalate: "gpt-5",
     summary: "gpt-5",
   },

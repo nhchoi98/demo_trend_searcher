@@ -34,30 +34,19 @@ async function main(): Promise<number> {
 
   let backends: Backends | undefined;
   if (!dryRun) {
-    if (!env.OPENAI_API_KEY) {
-      console.error("OPENAI_API_KEY is not set: summaries need it even when Jev does the judging (use --dry-run to test collection only)");
+    const missing = ["OPENAI_API_KEY", "TYPESAFE_API_KEY"].filter((k) => !env[k]);
+    if (missing.length) {
+      console.error(`${missing.join(", ")} not set: loop 1 needs TypeSafe Jev, loop 2 needs OpenAI (use --dry-run to test collection only)`);
       return 2;
     }
-    const openai = createOpenAIClient(env.OPENAI_API_KEY);
+    const openai = createOpenAIClient(env.OPENAI_API_KEY as string);
     const text = new OpenAITextBackend(openai, config.models.summary);
-    if (env.TYPESAFE_API_KEY) {
-      // Intended setup: Jev is the only judge. GPT re-judging is opt-in (gate.escalate).
-      backends = {
-        decide: new JevDecisionBackend(createJevClient(env.TYPESAFE_API_KEY), config.models.jev),
-        text,
-        ...(config.gate.escalate ? { escalate: new OpenAIDecisionBackend(openai, config.models.escalate) } : {}),
-      };
-    } else {
-      console.warn("[cli] TYPESAFE_API_KEY is not set: loop 1 runs on OpenAI instead of Jev");
-      backends = {
-        decide: new OpenAIDecisionBackend(openai, config.models.decide),
-        text,
-        // No point escalating to the same model.
-        ...(config.gate.escalate && config.models.escalate !== config.models.decide
-          ? { escalate: new OpenAIDecisionBackend(openai, config.models.escalate) }
-          : {}),
-      };
-    }
+    // Jev is the only judge. GPT re-judging is opt-in (gate.escalate).
+    backends = {
+      decide: new JevDecisionBackend(createJevClient(env.TYPESAFE_API_KEY as string), config.models.jev),
+      text,
+      ...(config.gate.escalate ? { escalate: new OpenAIDecisionBackend(openai, config.models.escalate) } : {}),
+    };
     console.log(
       `[cli] loop 1: ${backends.decide.id}:${backends.decide.model}` +
         (backends.escalate ? ` -> escalates to ${backends.escalate.id}:${backends.escalate.model}` : "") +

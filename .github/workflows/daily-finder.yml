@@ -37,7 +37,6 @@ jobs:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           FINDER_JEV_MODEL: ${{ vars.FINDER_JEV_MODEL }}
-          FINDER_DECIDE_MODEL: ${{ vars.FINDER_DECIDE_MODEL }}
           FINDER_ESCALATE_MODEL: ${{ vars.FINDER_ESCALATE_MODEL }}
           FINDER_SUMMARY_MODEL: ${{ vars.FINDER_SUMMARY_MODEL }}
 
