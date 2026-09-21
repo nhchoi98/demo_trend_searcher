@@ -1,0 +1,52 @@
+name: daily-finder
+
+on:
+  schedule:
+    # UTC. 02:17 UTC = 11:17 KST, Mon-Fri: shortly after arXiv's announcement
+    # (20:00 US Eastern, Sun-Thu). An off-the-hour minute avoids the scheduler rush.
+    - cron: "17 2 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write # commit data/ and reports/
+
+concurrency:
+  group: daily-finder
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run finder
+        run: node src/cli.ts run
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          FINDER_DECIDE_MODEL: ${{ vars.FINDER_DECIDE_MODEL }}
+          FINDER_ESCALATE_MODEL: ${{ vars.FINDER_ESCALATE_MODEL }}
+          FINDER_SUMMARY_MODEL: ${{ vars.FINDER_SUMMARY_MODEL }}
+
+      # Runs even if the step above failed: state for the papers that did
+      # succeed is already on disk and must not be lost (or they get re-posted).
+      - name: Commit state and report
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data reports
+          git diff --cached --quiet && exit 0
+          git commit -m "finder: $(TZ=Asia/Seoul date +%F)"
+          git push

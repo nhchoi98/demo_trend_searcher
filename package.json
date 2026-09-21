@@ -1,0 +1,26 @@
+{
+  "name": "trend-finder",
+  "version": "0.1.0",
+  "description": "Daily research-paper finder: arXiv -> LLM relevance gate -> prose summaries with references -> Teams / markdown",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/cli.ts run",
+    "dry-run": "node src/cli.ts run --dry-run",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.1",
+    "openai": "^7.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "typescript": "^7.0.2"
+  }
+}

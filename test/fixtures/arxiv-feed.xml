@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <link href="http://arxiv.org/api/query?search_query=..." rel="self" type="application/atom+xml"/>
+  <title type="html">ArXiv Query: fixture</title>
+  <id>http://arxiv.org/api/fixture</id>
+  <updated>2026-09-21T00:00:00-04:00</updated>
+  <opensearch:totalResults xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">2</opensearch:totalResults>
+  <entry>
+    <id>http://arxiv.org/abs/2609.01234v2</id>
+    <updated>2026-09-19T10:00:00Z</updated>
+    <published>2026-09-18T17:59:59Z</published>
+    <title>A Fixture World Model for
+  Testing &amp; Parsing</title>
+    <summary>  We present a made-up world model.
+It exists only to test the parser.
+</summary>
+    <author><name>Ada Example</name></author>
+    <author><name>Bo Sample</name></author>
+    <author><name>Cy Placeholder</name></author>
+    <author><name>Di Fourth</name></author>
+    <link href="http://arxiv.org/abs/2609.01234v2" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2609.01234v2" rel="related" type="application/pdf"/>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.RO" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2609.05678v1</id>
+    <updated>2026-09-17T09:00:00Z</updated>
+    <published>2026-09-17T09:00:00Z</published>
+    <title>2026</title>
+    <summary>A single-author, single-category entry with a numeric-looking title.</summary>
+    <author><name>Solo Author</name></author>
+    <link href="http://arxiv.org/abs/2609.05678v1" rel="alternate" type="text/html"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+</feed>

@@ -1,0 +1,20 @@
+{
+  // TypeScript 7 is used for type-checking only. Node (>=22.18) runs the .ts
+  // files directly via built-in type stripping, so there is no build step.
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "nodenext",
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    // Required for Node type stripping: only syntax that can be erased,
+    // explicit `import type`, and `.ts` extensions in relative imports.
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src", "test", "finder.config.ts"]
+}
