@@ -22,6 +22,40 @@ arXiv 수집 → 이미 본 논문 제외 → 루프 1: 판정(Jev) → 루프 2
 | `topic` | "다음 토픽 중 어디에 속하나?" | `finder.config.ts`의 `topics` 세 개(각 `description`이 설명으로 붙음) + none | 리포트에서 논문 옆에 표시되는 분류. 포함 여부에는 영향 없음 |
 | `contribution` | "어떤 종류의 기여인가?" | method / model-release / dataset-benchmark / survey / application / analysis. 코드에 고정 | 리포트 표기. 포함 여부에는 영향 없음 |
 
+### `label`은 어떻게 붙나
+
+포함 여부를 결정하는 질문이라 따로 풀어 씁니다. 질문은 `src/loops/triage.ts`의 `triageQuestions()`가 조립하고, `finder.config.ts`의 `interest` 문장이 그대로 들어갑니다.
+
+```
+A reader follows this research interest: <interest 문장 전문>
+How relevant is this paper to that interest? Most papers are unfiltered daily submissions, so most are irrelevant.
+```
+
+마지막 문장은 사전 확률을 알려주는 장치입니다. 카테고리 전체를 받으니 대부분이 무관하다는 걸 미리 말해 둡니다. 선택지 세 개는 코드에 고정돼 있고 각각 설명이 붙어 갑니다.
+
+| 키 | Jev가 받는 설명 |
+| --- | --- |
+| core | Directly about the interest; the reader would want to read it. |
+| adjacent | A neighbouring area with a concrete, stated link to the interest. |
+| irrelevant | No real link to the interest, or only shared vocabulary. |
+
+판단 대상은 논문의 제목·카테고리·초록뿐입니다. Jev는 문장 대신 세 선택지의 확률 분포를 돌려줍니다.
+
+```json
+"label": { "type": "choice", "choice": "core", "confidence": 0.91,
+           "probabilities": { "core": 0.85, "adjacent": 0.10, "irrelevant": 0.05 } }
+```
+
+`choice`는 확률이 가장 높은 것, `probabilities`는 세 개 전체의 분포, `confidence`는 분포가 얼마나 한쪽으로 쏠렸는지입니다. 코드는 이 답으로 세 가지를 정합니다.
+
+1. **포함 확률** = core + adjacent = 0.95. 0.5 이상이면 후보입니다. `choice`만 보지 않고 분포를 더하므로 core 0.3 · adjacent 0.3 · irrelevant 0.4처럼 1등이 irrelevant인 논문도 관련 쪽 합 0.6으로 잡힙니다.
+2. **기대 관련도** = core×1 + adjacent×0.5 = 0.90. priority의 첫 항입니다.
+3. **경계** = 후보인데 confidence가 0.7 미만이면 "경계(직접 판단 필요)" 표시.
+
+리포트에 찍히는 `core (0.91)`이 `choice`와 `confidence`입니다. 라벨이 이상하게 붙으면 고칠 곳은 `interest` 문장이 먼저이고, 선택지 설명을 바꾸려면 `triage.ts`입니다.
+
+### `topic`의 선택지
+
 `topic`의 선택지가 되는 `topics`는 `finder.config.ts`에 이렇게 있습니다. `description`이 Jev에게 선택지 설명으로 그대로 가고, `title`은 리포트 표시용, `phrases`는 Jev와 무관하게 "키워드 검색이었다면 걸렸을까"를 로컬에서 계산하는 데만 씁니다.
 
 ```ts
