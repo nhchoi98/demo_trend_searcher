@@ -12,6 +12,40 @@ arXiv 수집 → 이미 본 논문 제외 → 루프 1: 판정(Jev) → 루프 2
 
 서버와 DB가 없습니다. GitHub Actions가 하루 한 번 실행하고, 상태는 `data/*.jsonl`로 레포에 커밋됩니다.
 
+## 처리 흐름
+
+```mermaid
+flowchart TD
+    A[arXiv API<br/>category: 카테고리 신규 전부<br/>keyword: 토픽 구문 검색] --> B[중복 제외<br/>data/papers.jsonl의 id와 대조]
+    B --> C{gate.maxNewPerRun<br/>초과?}
+    C -- 넘친 논문 --> D[다음 실행으로 이월<br/>기록하지 않음]
+    C -- 배치 --> E
+
+    subgraph L1[루프 1: 판정 · 논문당 1회 호출]
+        E[질문 15개 fan-out<br/>label · topic · contribution<br/>significance · tag × 11] --> F[Jev<br/>TYPESAFE_API_KEY 없으면 OpenAI]
+        F --> G[combine · 코드<br/>포함 확률 · 경계 · 우선순위 · 태그]
+    end
+
+    F -. 호출마다 .-> H[(data/decisions.jsonl)]
+    G --> I{포함?}
+    I -- 아니오 --> J[(papers.jsonl<br/>즉시 기록)]
+    I -- 예 --> K
+
+    subgraph L2[루프 2: 요약]
+        K[GPT · 제목과 초록만 사용<br/>한 줄 요약 + 문제·방법·결과·의의]
+    end
+
+    K --> M[(papers.jsonl<br/>요약 완료 후 일괄 기록)]
+    M --> N[reports/날짜.md<br/>레퍼런스는 피드 메타데이터로만]
+    N --> O[Teams Adaptive Card<br/>TEAMS_WEBHOOK_URL 있을 때]
+    N --> P[GitHub Actions가<br/>data/ · reports/ 커밋]
+
+    F -. 실패 .-> Q[기록하지 않음<br/>다음 실행에서 재시도]
+    K -. 실패 .-> Q
+```
+
+읽는 순서대로 세 가지만 기억하면 됩니다. 판정 로그는 호출마다 남고, 탈락 논문은 판정 즉시 기록되며, 리포트 대상 논문은 요약이 다 끝난 뒤 게시 전에 한꺼번에 기록됩니다. 실패한 논문은 어디에도 기록되지 않아 다음 실행이 다시 시도합니다.
+
 ## 내 레포에서 돌리기
 
 1. 이 레포를 fork하거나 템플릿으로 복사합니다.
@@ -21,6 +55,7 @@ arXiv 수집 → 이미 본 논문 제외 → 루프 1: 판정(Jev) → 루프 2
    - Secret `TYPESAFE_API_KEY` (권장. 있으면 루프 1이 Jev로 돌고, 없으면 OpenAI로 대신합니다)
    - Secret `TEAMS_WEBHOOK_URL` (선택. 없으면 마크다운 리포트만 남깁니다)
    - Variable `FINDER_JEV_MODEL`, `FINDER_DECIDE_MODEL`, `FINDER_ESCALATE_MODEL`, `FINDER_SUMMARY_MODEL` (선택. 모델 교체용)
+   - `REPORT_BASE_URL` (선택. Teams 카드의 "Full report" 링크 기준 URL. Actions 안에서는 레포 주소에서 자동으로 만들어지므로 로컬에서 Teams까지 테스트할 때만 필요합니다)
 4. `finder.config.ts`에서 주제, 태그, 관심사 설명을 자기 것으로 바꿉니다.
 5. Actions 탭에서 `daily-finder`를 수동 실행(Run workflow)해 확인합니다.
 
@@ -28,7 +63,7 @@ Teams 웹훅은 채널의 Workflows 앱에서 "Send webhook alerts to a channel"
 
 ## 로컬 실행
 
-Node 22.18 이상과 pnpm이 필요합니다. 빌드 단계는 없습니다. Node가 `.ts`를 직접 실행하고, TypeScript 7은 타입 검사에만 씁니다.
+Node 24 LTS 이상과 pnpm이 필요합니다. 빌드 단계는 없습니다. Node가 `.ts`를 직접 실행하고, TypeScript 7은 타입 검사에만 씁니다.
 
 ```bash
 pnpm install
@@ -39,6 +74,20 @@ pnpm typecheck && pnpm test
 ```
 
 SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사내 CA 인증서 경로를 지정하세요.
+
+종료 코드는 세 가지입니다. Actions 실행 목록에서 빨간색이면 아래 중 하나입니다.
+
+| 코드 | 뜻 |
+| --- | --- |
+| 0 | 정상. 통과한 논문이 없는 날도 0입니다 |
+| 1 | 상태는 저장했지만 Teams 게시가 실패했거나, 판정을 시도한 논문이 전부 실패했습니다 |
+| 2 | 사용법 오류이거나 `OPENAI_API_KEY`가 없습니다 |
+
+`pnpm test`는 Node 내장 테스트 러너로 돕니다. 외부 호출 없이 arXiv 응답 픽스처(`test/fixtures/arxiv-feed.xml`)와 가짜 백엔드로 파이프라인 전체(판정 → 요약 → 저장 → 다음 실행에서 중복 제외), `combine()`의 임계값·가중치 계산, Jev SDK 요청·응답 변환을 확인합니다.
+
+## CI
+
+`.github/workflows/ci.yml`이 PR과 `main` push마다 `pnpm typecheck`와 `pnpm test`를 돌립니다. `daily-finder`가 커밋하는 `data/`와 `reports/` 변경은 CI를 건너뜁니다. 하루 한 번 실행하는 쪽은 `.github/workflows/daily-finder.yml`이고, 평일 11:17 KST(arXiv 발표 직후)에 돕니다.
 
 ## 루프 1: 작은 질문 여러 개를 한 번에
 
@@ -80,6 +129,12 @@ SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사�
 | 경로 | 역할 |
 | --- | --- |
 | `finder.config.ts` | 주제·태그·게이트 기준·모델·리포트 언어. 보통 이 파일만 고칩니다 |
+| `src/config.ts` | 위 설정의 타입과 각 항목의 뜻(주석). `FINDER_*_MODEL` 환경 변수 덮어쓰기 |
+| `src/cli.ts` | 진입점. 키 유무에 따라 백엔드를 고르고 `run`을 호출한 뒤 종료 코드를 정합니다 |
+| `src/pipeline.ts` | 한 번의 실행 전체: 수집 → 중복 제외 → 비용 상한 → 루프 1·2(동시 실행) → 저장 → 리포트 → 게시 |
+| `src/store.ts` | `data/*.jsonl` 읽기·쓰기. 동시 append를 직렬화하고, 깨진 마지막 줄은 경고만 내고 건너뜁니다 |
+| `src/types.ts` | `Paper`, 판정 결과, 저장 레코드의 타입 |
+| `src/util.ts` | 동시 실행 제한(`mapLimit`), 타임존 날짜, 해시 |
 | `src/sources/arxiv.ts` | arXiv API 수집. 카테고리 전체 페이지네이션 또는 주제별 키워드 쿼리, 요청 간 3초 간격 |
 | `src/llm/backend.ts` | `DecisionBackend`(choice·noul·score 질문에 답하는 `ask()`)와 `TextBackend`(글쓰기) 인터페이스 |
 | `src/llm/jev.ts` | `DecisionBackend`의 Jev 구현 (`@typesafe-ai/sdk`) |
@@ -91,6 +146,34 @@ SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사�
 | `src/sinks/teams.ts` | Adaptive Card 게시. 페이로드 크기 제한에 맞춰 항목 수를 줄입니다 |
 | `data/papers.jsonl` | 지금까지 본 논문과 판정 결과. 중복 방지와 트렌드 집계의 원천. 탈락한 논문은 id·라벨·confidence·포함 확률만 남깁니다 |
 | `data/decisions.jsonl` | 모든 판단 호출의 로그(백엔드, 모델, 입력 해시, 질문별 답과 확실성, 입력 토큰) |
+| `reports/<날짜>.md` | 그날의 마크다운 리포트. 통과한 논문이 없는 날은 파일을 만들지 않습니다 |
+| `test/` | 파이프라인·판정·arXiv 파서 테스트와 피드 픽스처 |
+
+## 리포트 형식
+
+논문은 게이트가 고른 토픽 섹션 아래 우선순위 순으로 한 번씩만 실립니다. 토픽이 `none`이면 키워드가 매칭된 첫 토픽, 그것도 없으면 "기타"입니다. 각 논문은 메타데이터 한 줄, 한 줄 요약, 문제·방법·결과·의의 한 문단으로 구성되고, 레퍼런스 번호는 문서 끝 References 목록을 가리킵니다.
+
+```markdown
+# 리서치 트렌드 리포트 · 2026-09-21
+
+수집 412건 · 신규 388건 · 리포트 대상 7건 · 그중 키워드 검색이었다면 놓쳤을 논문 2건
+
+## World Models
+
+### <논문 제목> [1]
+
+A. Kim, B. Lee, C. Park et al. · 2026-09-19 · [arXiv:2609.01234](…) · core (0.91) · method · priority 0.82 · world-model, video-generation
+
+**한 줄 요약**
+
+문제. 방법. 결과. 왜 중요한가.
+
+## References
+
+1. A. Kim, B. Lee, C. Park et al. "<논문 제목>." arXiv:2609.01234 (2026-09-19). https://arxiv.org/abs/2609.01234
+```
+
+리포트 언어는 `report.language`로 정하고, 현재 제목·통계 줄 등 고정 문구는 한국어와 영어(그 외 값)만 있습니다. 다른 언어를 쓰려면 `src/report.ts`의 `LABELS`에 항목을 추가하세요. 요약 본문은 모델이 설정한 언어로 씁니다.
 
 ## 동작 원칙
 

@@ -1,5 +1,5 @@
 {
-  // TypeScript 7 is used for type-checking only. Node (>=22.18) runs the .ts
+  // TypeScript 7 is used for type-checking only. Node (>=24) runs the .ts
   // files directly via built-in type stripping, so there is no build step.
   "compilerOptions": {
     "target": "esnext",
