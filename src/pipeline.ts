@@ -7,6 +7,7 @@ import { summarize } from "./loops/summarize.ts";
 import { renderMarkdown, type RunStats } from "./report.ts";
 import { buildCard, postToTeams } from "./sinks/teams.ts";
 import { fetchArxiv } from "./sources/arxiv.ts";
+import { authorHIndex } from "./sources/semanticscholar.ts";
 import { Store } from "./store.ts";
 import type { Paper, ReportItem, SeenRecord } from "./types.ts";
 import { localDate, mapLimit } from "./util.ts";
@@ -25,6 +26,7 @@ export interface RunOptions {
   backends?: Backends;
   teamsWebhookUrl?: string;
   reportBaseUrl?: string;
+  semanticScholarApiKey?: string;
   /** Injectable for tests. */
   fetchPapers?: (config: FinderConfig) => Promise<Paper[]>;
   now?: Date;
@@ -67,11 +69,27 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const backends = options.backends;
   if (!backends) throw new Error("backends are required unless dryRun is set");
 
+  // Author track record: one batch lookup for the whole run. Papers Semantic Scholar
+  // has not indexed yet, or a failed lookup, just leave the author term out of priority.
+  let hIndex = new Map<string, number>();
+  if (config.gate.priorityWeights.author > 0) {
+    try {
+      hIndex = await authorHIndex(
+        batch.map((p) => p.id),
+        options.semanticScholarApiKey ? { apiKey: options.semanticScholarApiKey } : {},
+      );
+      console.log(`[run] author h-index known for ${hIndex.size}/${batch.length} papers`);
+    } catch (error) {
+      console.warn("[run] Semantic Scholar lookup failed; priority uses label and significance only:", error instanceof Error ? error.message : error);
+    }
+  }
+
   // Decision-backend usage per "backend:model", for a cost line at the end of the run.
   const usage = new Map<string, { calls: number; inputTokens: number }>();
 
   const results = await mapLimit(batch, config.concurrency, async (paper): Promise<Processed | undefined> => {
-    const { triage, log } = await triagePaper(paper, config, backends.decide, backends.escalate);
+    const h = hIndex.get(paper.id);
+    const { triage, log } = await triagePaper(paper, config, backends.decide, backends.escalate, h !== undefined ? { authorHIndex: h } : {});
     await store.appendDecisions(log);
     for (const record of log) {
       const key = `${record.backend}:${record.model}`;
@@ -87,6 +105,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       confidence: triage.labelConfidence,
       includeProbability: triage.includeProbability,
       matchedTopics: paper.matchedTopics,
+      ...(triage.authorHIndex !== undefined ? { authorHIndex: triage.authorHIndex } : {}),
       reported: false,
       runDate: date,
     };

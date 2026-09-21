@@ -66,8 +66,16 @@ export interface FinderConfig {
     escalate: boolean;
     /** A tag is attached when its yes-probability reaches this. */
     tagThreshold: number;
-    /** priority = weighted mean of relevance (core 1, adjacent 0.5) and normalized significance. Orders the report. */
-    priorityWeights: { label: number; significance: number };
+    /**
+     * priority = weighted mean of relevance (core 1, adjacent 0.5), normalized significance and,
+     * when Semantic Scholar knows the paper, the authors' best h-index (capped and scaled to 0..1).
+     * A missing h-index drops that term instead of counting as 0. `author: 0` skips the lookup.
+     */
+    priorityWeights: { label: number; significance: number; author: number };
+    /** h-index at which the author term saturates at 1. */
+    authorHIndexCap: number;
+    /** Papers whose priority is below this are not reported even when the label passes. 0 turns it off. */
+    minPriority: number;
     /**
      * Cost guard: at most this many new papers are judged per run, newest first.
      * The rest stay unseen and are picked up by later runs while inside the window.

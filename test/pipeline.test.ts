@@ -3,12 +3,19 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import baseConfig from "../finder.config.ts";
+import base from "../finder.config.ts";
 import type { AnswersFor, AskResult, DecisionBackend, Questions, State, TextBackend, TextSpec } from "../src/llm/backend.ts";
 import { run, type Backends } from "../src/pipeline.ts";
 import { buildCard } from "../src/sinks/teams.ts";
 import { readJsonl } from "../src/store.ts";
 import type { DecisionRecord, Paper, ReportItem, SeenRecord, Summary } from "../src/types.ts";
+
+// Fake backends answer with fixed scores; the priority floor and the author term are
+// tested in triage.test.ts. author: 0 also keeps the pipeline off the network.
+const baseConfig = {
+  ...base,
+  gate: { ...base.gate, minPriority: 0, priorityWeights: { ...base.gate.priorityWeights, author: 0 } },
+};
 
 function paper(id: string, title: string): Paper {
   return {
@@ -102,7 +109,7 @@ test("run: gates, summarizes, persists, and skips seen papers on the next run", 
     const report = await readFile(join(rootDir, "reports", "2026-09-21.md"), "utf8");
     assert.match(report, /### Good World Model \[1\]/);
     // The gate's topic wins over the keyword-matched topic when choosing the section.
-    assert.match(report, /## Physical AI \/ Embodied AI\n\n### Good World Model/);
+    assert.match(report, /### Good World Model \[1\]\n\npriority 1\.00 · Physical AI \/ Embodied AI · core/);
     assert.match(report, /Problem\. Method\. Results\. Why\./);
     assert.match(report, /1\. Ada Example, Bo Sample\. "Good World Model\." arXiv:2609\.00001 \(2026-09-18\)\. https:\/\/arxiv\.org\/abs\/2609\.00001/);
     assert.doesNotMatch(report, /Noise Paper/);

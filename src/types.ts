@@ -36,8 +36,10 @@ export interface Triage {
   contribution: string;
   /** Probability-weighted significance level, 0 .. SIGNIFICANCE_LEVELS-1. */
   significance: number;
-  /** 0..1, combined IN CODE from expected relevance and significance with the weights in the config. */
+  /** 0..1, combined IN CODE from expected relevance, significance and (when known) author h-index with the weights in the config. */
   priority: number;
+  /** Highest h-index among the authors (Semantic Scholar). Absent when the paper is not indexed yet. */
+  authorHIndex?: number;
 }
 
 export interface Summary {
@@ -69,6 +71,7 @@ export interface SeenRecord {
   includeProbability: number;
   /** Topics a keyword search would have matched. Empty = keyword mode would have missed it. */
   matchedTopics: string[];
+  authorHIndex?: number;
   reported: boolean;
   runDate: string;
   title?: string;
@@ -80,6 +83,16 @@ export interface SeenRecord {
   significance?: number;
   priority?: number;
   borderline?: boolean;
+}
+
+/** One line of data/citations.jsonl: a reported paper's citation count, looked up once, `daysAfter` its run. */
+export interface CitationRecord {
+  id: string;
+  runDate: string;
+  checkedAt: string;
+  daysAfter: number;
+  citationCount: number;
+  influentialCitationCount: number;
 }
 
 /**

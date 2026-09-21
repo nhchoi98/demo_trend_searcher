@@ -36,9 +36,19 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
           FINDER_JEV_MODEL: ${{ vars.FINDER_JEV_MODEL }}
           FINDER_ESCALATE_MODEL: ${{ vars.FINDER_ESCALATE_MODEL }}
           FINDER_SUMMARY_MODEL: ${{ vars.FINDER_SUMMARY_MODEL }}
+
+      # Check-back on papers reported 30+ days ago. Optional: a failure here must
+      # not hide the finder's result or block the commit below.
+      - name: Record citations
+        if: always()
+        continue-on-error: true
+        run: node src/cli.ts citations
+        env:
+          SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
 
       # Runs even if the step above failed: state for the papers that did
       # succeed is already on disk and must not be lost (or they get re-posted).

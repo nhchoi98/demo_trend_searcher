@@ -72,7 +72,12 @@ const LABEL_WEIGHT: Record<RelevanceLabel, number> = { core: 1, adjacent: 0.5, i
  * The judgments are combined HERE, in code, not by another model call: the
  * weights stay visible and tunable, and the rule cannot drift between runs.
  */
-export function combine(result: AskResult<Questions>, config: FinderConfig): Triage {
+export interface Signals {
+  /** Highest author h-index from Semantic Scholar, when the paper is indexed. */
+  authorHIndex?: number;
+}
+
+export function combine(result: AskResult<Questions>, config: FinderConfig, signals: Signals = {}): Triage {
   const { answers } = result;
   const label = answers.label;
   const topic = answers.topic;
@@ -100,11 +105,17 @@ export function combine(result: AskResult<Questions>, config: FinderConfig): Tri
   const expectedRelevance = hasDistribution
     ? Object.entries(LABEL_WEIGHT).reduce((sum, [l, weight]) => sum + (p[l] ?? 0) * weight, 0)
     : LABEL_WEIGHT[relevance];
-  const included = includeProbability >= config.gate.includeThreshold;
-
+  // Weighted mean over the signals we have: an unknown h-index is left out, not counted as 0.
   const w = config.gate.priorityWeights;
-  const significanceNorm = significance.score / (SIGNIFICANCE_LEVELS.length - 1);
-  const priority = (w.label * expectedRelevance + w.significance * significanceNorm) / (w.label + w.significance);
+  const terms: Array<[weight: number, value: number]> = [
+    [w.label, expectedRelevance],
+    [w.significance, significance.score / (SIGNIFICANCE_LEVELS.length - 1)],
+  ];
+  if (signals.authorHIndex !== undefined) {
+    terms.push([w.author, Math.min(signals.authorHIndex, config.gate.authorHIndexCap) / config.gate.authorHIndexCap]);
+  }
+  const priority = round(terms.reduce((s, [wt, v]) => s + wt * v, 0) / terms.reduce((s, [wt]) => s + wt, 0));
+  const included = includeProbability >= config.gate.includeThreshold && priority >= config.gate.minPriority;
 
   return {
     label: relevance,
@@ -116,7 +127,8 @@ export function combine(result: AskResult<Questions>, config: FinderConfig): Tri
     tags,
     contribution: contribution.choice,
     significance: significance.score,
-    priority: round(priority),
+    priority,
+    ...(signals.authorHIndex !== undefined ? { authorHIndex: signals.authorHIndex } : {}),
   };
 }
 
@@ -155,18 +167,19 @@ export async function triagePaper(
   config: FinderConfig,
   primary: DecisionBackend,
   escalation: DecisionBackend | undefined,
+  signals: Signals = {},
 ): Promise<TriageResult> {
   const questions = triageQuestions(config);
   const state = paperState(paper);
   const inputHash = sha256(JSON.stringify([questions, state]));
 
   const first = await primary.ask(state, questions);
-  const firstTriage = combine(first, config);
+  const firstTriage = combine(first, config, signals);
   const log = [toRecord(paper, inputHash, first)];
   if (!config.gate.escalate || !escalation || firstTriage.labelConfidence >= config.gate.borderlineBelow) {
     return { triage: firstTriage, log };
   }
   const second = await escalation.ask(state, questions);
   log.push(toRecord(paper, inputHash, second, `${first.backend}:${first.model}`));
-  return { triage: combine(second, config), log };
+  return { triage: combine(second, config, signals), log };
 }

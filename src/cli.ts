@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import baseConfig from "../finder.config.ts";
+import { checkCitations } from "./citations.ts";
 import { applyEnv } from "./config.ts";
 import { createJevClient, JevDecisionBackend } from "./llm/jev.ts";
 import { createOpenAIClient, OpenAIDecisionBackend, OpenAITextBackend } from "./llm/openai.ts";
@@ -21,14 +22,27 @@ function reportBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
 async function main(): Promise<number> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { "dry-run": { type: "boolean", default: false } },
+    options: { "dry-run": { type: "boolean", default: false }, "after-days": { type: "string", default: "30" } },
   });
+  const env = process.env;
+  const s2Key = env.SEMANTIC_SCHOLAR_API_KEY ? { semanticScholarApiKey: env.SEMANTIC_SCHOLAR_API_KEY } : {};
+
+  if (positionals[0] === "citations") {
+    await checkCitations({ rootDir, afterDays: Number(values["after-days"]), ...(s2Key.semanticScholarApiKey ? { apiKey: s2Key.semanticScholarApiKey } : {}) });
+    return 0;
+  }
   if (positionals[0] !== "run") {
-    console.error("usage: node src/cli.ts run [--dry-run]\n  --dry-run  fetch and dedupe only: no LLM calls, no writes, no posting");
+    console.error(
+      [
+        "usage: node src/cli.ts run [--dry-run]",
+        "       node src/cli.ts citations [--after-days 30]",
+        "  --dry-run     fetch and dedupe only: no LLM calls, no writes, no posting",
+        "  citations     record citation counts of papers reported --after-days ago (data/citations.jsonl)",
+      ].join("\n"),
+    );
     return 2;
   }
 
-  const env = process.env;
   const config = applyEnv(baseConfig, env);
   const dryRun = values["dry-run"];
 
@@ -61,6 +75,7 @@ async function main(): Promise<number> {
     dryRun,
     ...(backends ? { backends } : {}),
     ...(env.TEAMS_WEBHOOK_URL ? { teamsWebhookUrl: env.TEAMS_WEBHOOK_URL } : {}),
+    ...s2Key,
     ...(base ? { reportBaseUrl: base } : {}),
   });
 

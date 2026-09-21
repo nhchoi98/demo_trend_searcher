@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { DecisionRecord, SeenRecord } from "./types.ts";
+import type { CitationRecord, DecisionRecord, SeenRecord } from "./types.ts";
 
 /**
  * State is plain append-only JSONL committed to the repo: no database to run,
@@ -10,10 +10,12 @@ import type { DecisionRecord, SeenRecord } from "./types.ts";
 export class Store {
   readonly papersPath: string;
   readonly decisionsPath: string;
+  readonly citationsPath: string;
 
   constructor(dataDir: string) {
     this.papersPath = join(dataDir, "papers.jsonl");
     this.decisionsPath = join(dataDir, "decisions.jsonl");
+    this.citationsPath = join(dataDir, "citations.jsonl");
   }
 
   async loadSeenIds(): Promise<Set<string>> {
@@ -27,6 +29,10 @@ export class Store {
 
   appendDecisions(records: readonly DecisionRecord[]): Promise<void> {
     return this.#enqueue(() => appendJsonl(this.decisionsPath, records));
+  }
+
+  appendCitations(records: readonly CitationRecord[]): Promise<void> {
+    return this.#enqueue(() => appendJsonl(this.citationsPath, records));
   }
 
   // Appends are called from concurrent workers; run them one at a time so

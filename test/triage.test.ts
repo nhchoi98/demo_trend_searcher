@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import baseConfig from "../finder.config.ts";
+import base from "../finder.config.ts";
 import type { AskResult, Questions } from "../src/llm/backend.ts";
 import { JevDecisionBackend, toSdkQuestions, type SystemOneClient } from "../src/llm/jev.ts";
 import { combine, triageQuestions } from "../src/loops/triage.ts";
@@ -38,6 +38,9 @@ function result(
   };
 }
 
+// The priority floor is exercised in its own test; the others look at the label gate alone.
+const baseConfig = { ...base, gate: { ...base.gate, minPriority: 0 } };
+
 test("combine applies the tag threshold and the priority weights in code", () => {
   const triage = combine(result("adjacent", 0.62, 1.5, { vla: 0.5, sim2real: 0.49, cosmos: 0.97 }), baseConfig);
   assert.deepEqual(triage.tags, ["vla", "cosmos"]);
@@ -68,6 +71,29 @@ test("combine decides inclusion from the probability distribution, not just the 
 test("combine falls back to the chosen label when the backend gives no distribution", () => {
   assert.equal(combine(result("adjacent", 0.9, 1, {}), baseConfig).includeProbability, 1);
   assert.equal(combine(result("irrelevant", 0.9, 1, {}), baseConfig).included, false);
+});
+
+test("combine drops a paper whose priority is under gate.minPriority even when the label passes", () => {
+  const floor = { ...baseConfig, gate: { ...baseConfig.gate, minPriority: 0.7 } };
+  const dist = { core: 0.9, adjacent: 0.05, irrelevant: 0.05 };
+  const pass = combine(result("core", 0.9, 3, {}, dist), floor);
+  assert.equal(pass.included, true, `priority ${pass.priority} clears the floor`);
+  const low = combine(result("core", 0.9, 0, {}, dist), floor);
+  assert.equal(low.included, false, `priority ${low.priority} is under the floor`);
+});
+
+test("combine mixes the author h-index into priority only when it is known", () => {
+  const w = baseConfig.gate.priorityWeights;
+  const cap = baseConfig.gate.authorHIndexCap;
+  const r3 = (n: number): number => Math.round(n * 1000) / 1000;
+  const unknown = combine(result("core", 0.9, 3, {}), baseConfig);
+  assert.equal(unknown.priority, 1, "core + top significance, no author term");
+  assert.equal("authorHIndex" in unknown, false);
+  const half = combine(result("core", 0.9, 3, {}), baseConfig, { authorHIndex: cap / 2 });
+  assert.equal(half.priority, r3((w.label + w.significance + w.author * 0.5) / (w.label + w.significance + w.author)));
+  assert.equal(half.authorHIndex, cap / 2);
+  const star = combine(result("core", 0.9, 3, {}), baseConfig, { authorHIndex: cap * 3 });
+  assert.equal(star.priority, 1, "h-index saturates at the cap");
 });
 
 test("combine rejects an answer set it cannot trust", () => {

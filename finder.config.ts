@@ -63,7 +63,9 @@ export default defineConfig({
     borderlineBelow: 0.7,
     escalate: false,
     tagThreshold: 0.5,
-    priorityWeights: { label: 0.6, significance: 0.4 },
+    priorityWeights: { label: 0.6, significance: 0.4, author: 0.15 },
+    authorHIndexCap: 40,
+    minPriority: 0.82,
     // Upper bound on gate calls (and therefore cost) per run. The very first
     // run sees the whole lookback window at once, so it may take 2-3 runs to catch up.
     maxNewPerRun: 1500,

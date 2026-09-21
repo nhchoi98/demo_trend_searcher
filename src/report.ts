@@ -72,27 +72,6 @@ export function sortItems(items: readonly ReportItem[]): ReportItem[] {
   );
 }
 
-/**
- * Each paper appears once: under the topic the gate assigned, else the first
- * topic whose phrases matched, else "other".
- */
-export function groupByTopic(
-  items: readonly ReportItem[],
-  config: FinderConfig,
-): Array<{ title: string; items: ReportItem[] }> {
-  const labels = labelsFor(config.report.language);
-  const groups = config.topics.map((t) => ({ key: t.key, title: t.title, items: [] as ReportItem[] }));
-  const other = { key: "_other", title: labels.other, items: [] as ReportItem[] };
-  for (const item of sortItems(items)) {
-    const group =
-      groups.find((g) => g.key === item.triage.topic) ??
-      groups.find((g) => item.paper.matchedTopics.includes(g.key)) ??
-      other;
-    group.items.push(item);
-  }
-  return [...groups, other].filter((g) => g.items.length > 0);
-}
-
 export function renderMarkdown(date: string, items: readonly ReportItem[], stats: RunStats, config: FinderConfig): string {
   const labels = labelsFor(config.report.language);
   const lines: string[] = [`# ${labels.title} · ${date}`, "", labels.stats(stats, items.length), ""];
@@ -101,25 +80,23 @@ export function renderMarkdown(date: string, items: readonly ReportItem[], stats
     return lines.join("\n");
   }
 
+  // One flat list, highest priority first. The topic is shown per paper instead of as a section.
   const references: string[] = [];
-  for (const group of groupByTopic(items, config)) {
-    lines.push(`## ${group.title}`, "");
-    for (const item of group.items) {
-      const { paper, summary, triage } = item;
-      const ref = references.push(formatReference(references.length + 1, paper));
-      const tags = triage.tags.length ? ` · ${triage.tags.join(", ")}` : "";
-      const miss = stats.keywordMissed !== undefined && paper.matchedTopics.length === 0 ? ` · ${labels.keywordMiss}` : "";
-      lines.push(
-        `### ${paper.title} [${ref}]`,
-        "",
-        `${authorLine(paper)} · ${paper.published.slice(0, 10)} · [arXiv:${paper.id}](${paper.url}) · ${triage.label} (${triage.labelConfidence.toFixed(2)})${triage.borderline ? ` · ${labels.borderline}` : ""} · ${triage.contribution} · priority ${triage.priority.toFixed(2)}${tags}${miss}`,
-        "",
-        `**${summary.oneLiner}**`,
-        "",
-        [summary.problem, summary.method, summary.results, summary.whyItMatters].join(" "),
-        "",
-      );
-    }
+  for (const { paper, summary, triage } of sortItems(items)) {
+    const ref = references.push(formatReference(references.length + 1, paper));
+    const topic = config.topics.find((t) => t.key === triage.topic)?.title ?? labels.other;
+    const tags = triage.tags.length ? ` · ${triage.tags.join(", ")}` : "";
+    const miss = stats.keywordMissed !== undefined && paper.matchedTopics.length === 0 ? ` · ${labels.keywordMiss}` : "";
+    lines.push(
+      `### ${paper.title} [${ref}]`,
+      "",
+      `priority ${triage.priority.toFixed(2)} · ${topic} · ${triage.label} (${triage.labelConfidence.toFixed(2)})${triage.borderline ? ` · ${labels.borderline}` : ""} · ${triage.contribution}${triage.authorHIndex !== undefined ? ` · h-index ${triage.authorHIndex}` : ""} · ${authorLine(paper)} · ${paper.published.slice(0, 10)} · [arXiv:${paper.id}](${paper.url})${tags}${miss}`,
+      "",
+      `**${summary.oneLiner}**`,
+      "",
+      [summary.problem, summary.method, summary.results, summary.whyItMatters].filter(Boolean).join(" "),
+      "",
+    );
   }
   lines.push(`## ${labels.references}`, "", ...references, "");
   return lines.join("\n");
