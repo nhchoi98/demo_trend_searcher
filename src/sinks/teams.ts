@@ -28,7 +28,7 @@ export function buildCard(
   const make = (count: number): unknown => {
     const shown = sortItems(items).slice(0, count);
     const body: CardElement[] = [...header];
-    for (const { paper, summary, relevance } of shown) {
+    for (const { paper, summary, triage } of shown) {
       body.push(
         {
           type: "TextBlock",
@@ -40,7 +40,7 @@ export function buildCard(
         { type: "TextBlock", text: summary.oneLiner, wrap: true, spacing: "Small" },
         {
           type: "TextBlock",
-          text: `arXiv:${paper.id} · ${paper.published.slice(0, 10)} · ${relevance.label}`,
+          text: `arXiv:${paper.id} · ${paper.published.slice(0, 10)} · ${triage.label} · ${triage.contribution}`,
           isSubtle: true,
           size: "Small",
           spacing: "Small",

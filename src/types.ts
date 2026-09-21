@@ -18,10 +18,26 @@ export interface Paper {
 
 export type RelevanceLabel = "core" | "adjacent" | "irrelevant";
 
-export interface RelevanceValue {
+/** Result of loop 1. Every field but `priority` is one answer from the decision backend. */
+export interface Triage {
   label: RelevanceLabel;
-  /** Subset of the tags defined in the config. */
+  /** Confidence of the `label` answer. */
+  labelConfidence: number;
+  /** Summed probability of the labels in gate.include (or 1 / 0 when the backend gives no distribution). */
+  includeProbability: number;
+  /** includeProbability reached gate.includeThreshold. */
+  included: boolean;
+  /** Included, but labelConfidence is under gate.borderlineBelow: the reader should make the call. */
+  borderline: boolean;
+  /** Key of the config topic the paper belongs to, or "none". Decides the report section. */
+  topic: string;
+  /** Config tags whose yes-probability reached gate.tagThreshold. */
   tags: string[];
+  contribution: string;
+  /** Probability-weighted significance level, 0 .. SIGNIFICANCE_LEVELS-1. */
+  significance: number;
+  /** 0..1, combined IN CODE from expected relevance and significance with the weights in the config. */
+  priority: number;
 }
 
 export interface Summary {
@@ -35,27 +51,42 @@ export interface Summary {
 /** A paper that passed the gate and was summarized. */
 export interface ReportItem {
   paper: Paper;
-  relevance: RelevanceValue;
-  confidence: number;
+  triage: Triage;
   summary: Summary;
 }
 
-/** One line of data/papers.jsonl: everything we have ever looked at. */
+/**
+ * One line of data/papers.jsonl: everything we have ever looked at.
+ * Papers judged irrelevant are stored slim (no title/url/tags): in "category"
+ * mode they are the vast majority and only need to be remembered as seen.
+ */
 export interface SeenRecord {
   id: string;
   version: number;
-  title: string;
-  url: string;
-  published: string;
-  matchedTopics: string[];
   label: RelevanceLabel;
-  tags: string[];
   confidence: number;
+  /** What the include decision was based on; lets you replay other gate.includeThreshold values. */
+  includeProbability: number;
+  /** Topics a keyword search would have matched. Empty = keyword mode would have missed it. */
+  matchedTopics: string[];
   reported: boolean;
   runDate: string;
+  title?: string;
+  url?: string;
+  published?: string;
+  topic?: string;
+  tags?: string[];
+  contribution?: string;
+  significance?: number;
+  priority?: number;
+  borderline?: boolean;
 }
 
-/** One line of data/decisions.jsonl: the raw log used to compare backends. */
+/**
+ * One line of data/decisions.jsonl: one backend call, all of its answers.
+ * `answers` maps question name -> [value, certainty], where certainty is the
+ * confidence of a choice/score or the yes-probability of a noul.
+ */
 export interface DecisionRecord {
   ts: string;
   loop: string;
@@ -63,8 +94,7 @@ export interface DecisionRecord {
   backend: string;
   model: string;
   inputHash: string;
-  value: unknown;
-  confidence: number;
-  reason?: string;
+  answers: Record<string, [string | number | boolean, number]>;
+  inputTokens: number;
   escalatedFrom?: string;
 }

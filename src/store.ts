@@ -21,12 +21,21 @@ export class Store {
     return new Set(records.map((r) => r.id));
   }
 
-  async appendSeen(records: readonly SeenRecord[]): Promise<void> {
-    await appendJsonl(this.papersPath, records);
+  appendSeen(records: readonly SeenRecord[]): Promise<void> {
+    return this.#enqueue(() => appendJsonl(this.papersPath, records));
   }
 
-  async appendDecisions(records: readonly DecisionRecord[]): Promise<void> {
-    await appendJsonl(this.decisionsPath, records);
+  appendDecisions(records: readonly DecisionRecord[]): Promise<void> {
+    return this.#enqueue(() => appendJsonl(this.decisionsPath, records));
+  }
+
+  // Appends are called from concurrent workers; run them one at a time so
+  // lines can never interleave.
+  #queue: Promise<void> = Promise.resolve();
+  #enqueue(task: () => Promise<void>): Promise<void> {
+    const result = this.#queue.then(task);
+    this.#queue = result.catch(() => {});
+    return result;
   }
 }
 

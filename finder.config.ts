@@ -13,49 +13,67 @@ export default defineConfig({
     {
       key: "world-model",
       title: "World Models",
+      description: "Learned models of environment dynamics: world models, video or latent simulators, world foundation models.",
       phrases: ["world model", "world models", "world foundation model", "learned simulator"],
     },
     {
       key: "physical-ai",
       title: "Physical AI / Embodied AI",
+      description: "Agents that perceive and act in the physical world: robot learning, vision-language-action models, embodied reasoning, autonomous driving.",
       phrases: ["physical AI", "embodied AI", "vision-language-action", "robot foundation model"],
     },
     {
       key: "nvidia-cosmos",
       title: "NVIDIA Cosmos",
+      description: "Work that builds on, evaluates or extends the NVIDIA Cosmos models (Predict, Transfer, Reason) or their tooling.",
       phrases: ["NVIDIA Cosmos", "Cosmos-Predict", "Cosmos-Transfer", "Cosmos-Reason", "Cosmos world foundation"],
     },
   ],
 
-  tags: [
-    "world-model",
-    "video-generation",
-    "vla",
-    "robot-manipulation",
-    "autonomous-driving",
-    "sim2real",
-    "synthetic-data",
-    "physical-reasoning",
-    "benchmark",
-    "survey",
-    "cosmos",
-  ],
+  // key -> statement judged as a yes/no question for every paper.
+  tags: {
+    "world-model": "The paper learns or uses a model that predicts how an environment evolves.",
+    "video-generation": "The paper generates or predicts video.",
+    vla: "The paper proposes, trains or evaluates a vision-language-action model.",
+    "robot-manipulation": "The paper addresses robot manipulation.",
+    "autonomous-driving": "The paper addresses autonomous driving.",
+    sim2real: "The paper addresses transfer from simulation to the real world.",
+    "synthetic-data": "The paper generates or relies on synthetic training data.",
+    "physical-reasoning": "The paper studies reasoning about physics, space or physical commonsense.",
+    benchmark: "The paper introduces a benchmark or dataset.",
+    survey: "The paper is a survey or review.",
+    cosmos: "The paper uses or mentions NVIDIA Cosmos.",
+  },
 
   arxiv: {
+    // "category": fetch every new paper in the categories and let the gate select.
+    // "keyword":  fetch only papers containing a topic phrase (cheap, but blind to new terms).
+    mode: "category",
     categories: ["cs.CV", "cs.RO", "cs.LG", "cs.AI"],
     lookbackDays: 4,
     maxResultsPerTopic: 100,
+    pageSize: 200,
+    maxPapers: 5000,
     requestDelayMs: 3100,
   },
 
   gate: {
     include: ["core", "adjacent"],
-    escalateBelow: 0.7,
+    includeThreshold: 0.5,
+    borderlineBelow: 0.7,
+    escalate: false,
+    tagThreshold: 0.5,
+    priorityWeights: { label: 0.6, significance: 0.4 },
+    // Upper bound on gate calls (and therefore cost) per run. The very first
+    // run sees the whole lookback window at once, so it may take 2-3 runs to catch up.
+    maxNewPerRun: 1500,
   },
 
-  // Override with FINDER_*_MODEL env vars. Check your account's model list;
-  // use a small model for decisions and a stronger one for prose.
+  // Loop 1 runs on Jev when TYPESAFE_API_KEY is set. Without a TypeSafe key, `decide`
+  // takes Jev's place. `escalate` is only used when gate.escalate is turned on.
+  // Override with FINDER_*_MODEL env vars and check your account's model list.
   models: {
+    jev: "jev-latest",
     decide: "gpt-5-mini",
     escalate: "gpt-5",
     summary: "gpt-5",
@@ -67,5 +85,5 @@ export default defineConfig({
     teamsMaxItems: 10,
   },
 
-  concurrency: 4,
+  concurrency: 8,
 });

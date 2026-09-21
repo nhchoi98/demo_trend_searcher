@@ -2,13 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FinderConfig } from "./config.ts";
 import type { DecisionBackend, TextBackend } from "./llm/backend.ts";
-import { judgeRelevance } from "./loops/relevance.ts";
+import { triagePaper } from "./loops/triage.ts";
 import { summarize } from "./loops/summarize.ts";
 import { renderMarkdown, type RunStats } from "./report.ts";
 import { buildCard, postToTeams } from "./sinks/teams.ts";
 import { fetchArxiv } from "./sources/arxiv.ts";
 import { Store } from "./store.ts";
-import type { DecisionRecord, Paper, ReportItem, SeenRecord } from "./types.ts";
+import type { Paper, ReportItem, SeenRecord } from "./types.ts";
 import { localDate, mapLimit } from "./util.ts";
 
 export interface Backends {
@@ -40,8 +40,7 @@ export interface RunResult {
 
 interface Processed {
   seen: SeenRecord;
-  log: DecisionRecord[];
-  item?: ReportItem;
+  item: ReportItem;
 }
 
 export async function run(options: RunOptions): Promise<RunResult> {
@@ -49,41 +48,70 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const date = localDate(config.report.timezone, options.now);
   const store = new Store(join(rootDir, "data"));
 
-  const fetched = await (options.fetchPapers ?? fetchArxiv)(config);
+  const fetched = options.fetchPapers ? await options.fetchPapers(config) : await fetchArxiv(config, options.now);
   const seenIds = await store.loadSeenIds();
-  const fresh = fetched.filter((p) => !seenIds.has(p.id));
-  console.log(`[run] ${date}: ${fetched.length} fetched, ${fresh.length} new`);
+  const fresh = fetched
+    .filter((p) => !seenIds.has(p.id))
+    .sort((a, b) => Date.parse(b.published) - Date.parse(a.published));
+  // Cost guard. Deferred papers stay unseen, so later runs pick them up.
+  const batch = fresh.slice(0, config.gate.maxNewPerRun);
+  const deferred = fresh.length - batch.length;
+  console.log(`[run] ${date}: ${fetched.length} fetched, ${fresh.length} new` + (deferred ? `, ${deferred} deferred to the next run` : ""));
 
+  const baseStats = { fetched: fetched.length, fresh: fresh.length, deferred };
   if (dryRun) {
-    for (const p of fresh) console.log(`  - ${p.id} [${p.matchedTopics.join(",")}] ${p.title}`);
-    return { date, stats: { fetched: fetched.length, fresh: fresh.length, failed: 0 }, items: [] };
+    for (const p of batch) console.log(`  - ${p.id} [${p.matchedTopics.join(",") || "-"}] ${p.title}`);
+    return { date, stats: { ...baseStats, failed: 0 }, items: [] };
   }
 
   const backends = options.backends;
   if (!backends) throw new Error("backends are required unless dryRun is set");
 
-  const results = await mapLimit(fresh, config.concurrency, async (paper): Promise<Processed> => {
-    const { decision, log } = await judgeRelevance(paper, config, backends.decide, backends.escalate);
-    const include = config.gate.include.includes(decision.value.label);
-    const summary = include ? await summarize(paper, config, backends.text) : undefined;
+  // Decision-backend usage per "backend:model", for a cost line at the end of the run.
+  const usage = new Map<string, { calls: number; inputTokens: number }>();
+
+  const results = await mapLimit(batch, config.concurrency, async (paper): Promise<Processed | undefined> => {
+    const { triage, log } = await triagePaper(paper, config, backends.decide, backends.escalate);
+    await store.appendDecisions(log);
+    for (const record of log) {
+      const key = `${record.backend}:${record.model}`;
+      const entry = usage.get(key) ?? { calls: 0, inputTokens: 0 };
+      entry.calls++;
+      entry.inputTokens += record.inputTokens;
+      usage.set(key, entry);
+    }
+    const seen: SeenRecord = {
+      id: paper.id,
+      version: paper.version,
+      label: triage.label,
+      confidence: triage.labelConfidence,
+      includeProbability: triage.includeProbability,
+      matchedTopics: paper.matchedTopics,
+      reported: false,
+      runDate: date,
+    };
+    if (!triage.included) {
+      // Rejected papers are the bulk of a "category" run and need nothing more:
+      // record them right away so a crash later does not pay for them twice.
+      await store.appendSeen([seen]);
+      return undefined;
+    }
+    const summary = await summarize(paper, config, backends.text);
     return {
-      log,
+      item: { paper, triage, summary },
       seen: {
-        id: paper.id,
-        version: paper.version,
+        ...seen,
+        reported: true,
         title: paper.title,
         url: paper.url,
         published: paper.published,
-        matchedTopics: paper.matchedTopics,
-        label: decision.value.label,
-        tags: decision.value.tags,
-        confidence: decision.confidence,
-        reported: include,
-        runDate: date,
+        topic: triage.topic,
+        tags: triage.tags,
+        contribution: triage.contribution,
+        significance: triage.significance,
+        priority: triage.priority,
+        ...(triage.borderline ? { borderline: true } : {}),
       },
-      ...(summary
-        ? { item: { paper, relevance: decision.value, confidence: decision.confidence, summary } }
-        : {}),
     };
   });
 
@@ -91,7 +119,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   let failed = 0;
   for (const result of results) {
     if (result.ok) {
-      done.push(result.value);
+      if (result.value) done.push(result.value);
     } else {
       // Not marked as seen, so the next run picks it up again.
       failed++;
@@ -99,12 +127,21 @@ export async function run(options: RunOptions): Promise<RunResult> {
     }
   }
 
-  const items = done.flatMap((d) => (d.item ? [d.item] : []));
-  const stats: RunStats = { fetched: fetched.length, fresh: fresh.length, failed };
+  for (const [key, u] of usage) console.log(`[run] loop 1 usage ${key}: ${u.calls} calls, ${u.inputTokens} input tokens`);
 
-  // Persist state BEFORE notifying: a failed Teams post must not cause the
-  // same papers to be summarized and posted again tomorrow.
-  await store.appendDecisions(done.flatMap((d) => d.log));
+  const items = done.map((d) => d.item);
+  const stats: RunStats = {
+    ...baseStats,
+    failed,
+    // Only meaningful when collection was not keyword-filtered to begin with.
+    ...(config.arxiv.mode === "category"
+      ? { keywordMissed: items.filter((i) => i.paper.matchedTopics.length === 0).length }
+      : {}),
+  };
+
+  // Reported papers are persisted only now, together, and BEFORE notifying:
+  // a failed Teams post must not cause them to be summarized and posted again,
+  // and a crash mid-run must not mark a paper "reported" that never reached a report.
   await store.appendSeen(done.map((d) => d.seen));
 
   if (items.length === 0) {
