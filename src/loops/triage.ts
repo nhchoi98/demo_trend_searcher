@@ -75,6 +75,14 @@ const LABEL_WEIGHT: Record<RelevanceLabel, number> = { core: 1, adjacent: 0.5, i
 export interface Signals {
   /** Highest author h-index from Semantic Scholar, when the paper is indexed. */
   authorHIndex?: number;
+  /** Author affiliations as listed on the paper, when known. */
+  affiliations?: string[];
+}
+
+/** Entries of gate.affiliations found (case-insensitive substring) in the paper's affiliations. */
+export function matchAffiliations(affiliations: readonly string[], wanted: readonly string[]): string[] {
+  const lower = affiliations.map((a) => a.toLowerCase());
+  return wanted.filter((w) => lower.some((a) => a.includes(w.toLowerCase())));
 }
 
 export function combine(result: AskResult<Questions>, config: FinderConfig, signals: Signals = {}): Triage {
@@ -114,7 +122,11 @@ export function combine(result: AskResult<Questions>, config: FinderConfig, sign
   if (signals.authorHIndex !== undefined) {
     terms.push([w.author, Math.min(signals.authorHIndex, config.gate.authorHIndexCap) / config.gate.authorHIndexCap]);
   }
-  const priority = round(terms.reduce((s, [wt, v]) => s + wt * v, 0) / terms.reduce((s, [wt]) => s + wt, 0));
+  const mean = terms.reduce((s, [wt, v]) => s + wt * v, 0) / terms.reduce((s, [wt]) => s + wt, 0);
+  // Affiliation is a bonus on top, not a weighted term: an unknown affiliation must not move the score.
+  const matched = matchAffiliations(signals.affiliations ?? [], config.gate.affiliations);
+  const boosted = matched.length > 0 && topic.choice !== "none";
+  const priority = round(Math.min(1, mean + (boosted ? config.gate.affiliationBoost : 0)));
   const included = includeProbability >= config.gate.includeThreshold && priority >= config.gate.minPriority;
 
   return {
@@ -129,6 +141,7 @@ export function combine(result: AskResult<Questions>, config: FinderConfig, sign
     significance: significance.score,
     priority,
     ...(signals.authorHIndex !== undefined ? { authorHIndex: signals.authorHIndex } : {}),
+    ...(boosted ? { affiliations: matched } : {}),
   };
 }
 
@@ -155,6 +168,8 @@ function toRecord(paper: Paper, inputHash: string, result: AskResult<Questions>,
 
 export interface TriageResult {
   triage: Triage;
+  /** The answers `triage` was combined from, so the caller can re-combine with more signals. */
+  answers: AskResult<Questions>;
   /** One record per backend call, including the pre-escalation one. */
   log: DecisionRecord[];
 }
@@ -180,10 +195,10 @@ export async function triagePaper(
   const firstTriage = combine(first, config, signals);
   const log = [toRecord(paper, inputHash, first, performance.now() - t0)];
   if (!config.gate.escalate || !escalation || firstTriage.labelConfidence >= config.gate.borderlineBelow) {
-    return { triage: firstTriage, log };
+    return { triage: firstTriage, answers: first, log };
   }
   const t1 = performance.now();
   const second = await escalation.ask(state, questions);
   log.push(toRecord(paper, inputHash, second, performance.now() - t1, `${first.backend}:${first.model}`));
-  return { triage: combine(second, config, signals), log };
+  return { triage: combine(second, config, signals), answers: second, log };
 }

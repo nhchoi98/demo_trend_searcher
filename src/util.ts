@@ -16,6 +16,16 @@ export function localDate(timezone: string, now: Date = new Date()): string {
   }).format(now);
 }
 
+/** Wraps an async function so calls run one at a time, `delayMs` apart: polite crawling from concurrent workers. */
+export function serialize<A extends unknown[], R>(fn: (...args: A) => Promise<R>, delayMs: number): (...args: A) => Promise<R> {
+  let queue: Promise<unknown> = Promise.resolve();
+  return (...args) => {
+    const call = queue.then(() => fn(...args));
+    queue = call.catch(() => {}).then(() => sleep(delayMs));
+    return call;
+  };
+}
+
 export function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }

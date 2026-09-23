@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { checkCitations } from "../src/citations.ts";
-import { authorHIndex, lookup, type S2Paper } from "../src/sources/semanticscholar.ts";
+import { authorSignals, lookup, type S2Paper } from "../src/sources/semanticscholar.ts";
 import { readJsonl } from "../src/store.ts";
 import type { CitationRecord } from "../src/types.ts";
 
@@ -22,8 +22,8 @@ test("lookup maps arXiv ids to rows and skips papers Semantic Scholar does not k
   });
   assert.deepEqual([...rows.keys()], ["2609.1"]);
   assert.equal(bodies[0], JSON.stringify({ ids: ["ARXIV:2609.1", "ARXIV:2609.2"] }));
-  const h = await authorHIndex(["2609.1"], { fetchImpl: fakeFetch([{ authors: [{ hIndex: 3 }, { hIndex: null }] }], []) });
-  assert.equal(h.get("2609.1"), 3);
+  const h = await authorSignals(["2609.1"], { fetchImpl: fakeFetch([{ authors: [{ hIndex: 3, affiliations: ["NVIDIA"] }, { hIndex: null, affiliations: ["NVIDIA", "MIT"] }] }], []) });
+  assert.deepEqual(h.get("2609.1"), { hIndex: 3, affiliations: ["NVIDIA", "MIT"] });
 });
 
 test("checkCitations records each reported paper once, only after --after-days", async () => {

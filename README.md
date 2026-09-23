@@ -3,7 +3,7 @@
 관심 연구 주제의 신규 논문을 매일 찾아서, 관련도 판정을 거친 것만 요약해 리포트로 남기는 작은 파이프라인입니다. 기본 설정은 world model, physical AI, NVIDIA Cosmos입니다.
 
 ```
-arXiv 수집 → 이미 본 논문 제외 → 루프 1: 판정(Jev) → 루프 2: 요약(GPT) → reports/<날짜>.md + Teams 카드
+arXiv 수집 → 이미 본 논문 제외 → 루프 1: 판정(Jev) → 후보 논문의 arXiv HTML(소속·Figure 1·링크) → 루프 2: 요약(GPT) + 코드·가중치·라이선스 조회 → reports/<날짜>.md + Teams 카드
 ```
 
 판정은 TypeSafe의 Jev가 합니다. Jev는 텍스트를 생성하지 않고, 타입이 정해진 질문에 확률이 붙은 답만 돌려주는 모델입니다. 빠르고 싸서 하루 수백 건을 전부 판정하는 데 맞습니다. GPT는 글을 쓰는 일(요약)만 맡습니다. Jev가 확신하지 못한 논문은 다른 모델에 다시 묻지 않고 리포트에 "경계"로 표시해서 읽는 사람이 판단합니다.
@@ -147,10 +147,13 @@ flowchart TD
    | 태그 | 0.08 ≥ 0.5 ? | vla 없음 |
 
    포함 확률 0.95는 기준(0.5)을 넘지만 priority 0.72가 하한(0.82)에 못 미쳐 이 논문은 7번에서 탈락합니다. 관련은 확실한데 기여도가 중간이라서입니다. h-index를 몰랐다면 (0.54 + 0.21) ÷ 1.0 = 0.75로 역시 탈락입니다.
+   - **소속 보너스.** `gate.affiliations`(기본 `["NVIDIA"]`)에 있는 기관이 저자 소속에 있으면 priority에 `gate.affiliationBoost`(0.05)를 더합니다. 가중 평균의 항이 아니라 위에 얹는 값이라 소속을 모르는 논문은 손해도 이득도 없습니다. topic이 `none`이면 더하지 않고, 포함 확률과 `minPriority` 기준은 그대로입니다. 소속은 6.5번에서 받아옵니다.
+6.5. **논문 페이지 조회.** label이 통과했고 (이미 priority 하한을 넘었거나, 소속 보너스를 받으면 넘을 수 있는) 논문만 arXiv HTML 페이지(`arxiv.org/html/<id>`)를 한 번 받습니다. 저자 소속, 첫 번째 그림(Figure 1)의 URL, 본문에 있는 GitHub·Hugging Face 링크를 뽑습니다. arxiv.org에는 한 번에 하나씩 3초 간격으로 요청합니다. HTML 렌더링이 없는 논문(LaTeX가 아닌 제출 등)은 비어 있는 채로 넘어가고, 소속은 4번의 Semantic Scholar 응답에 있으면 그것을 씁니다. 소속을 알게 되면 6번을 다시 계산합니다.
 7. **탈락.** 포함 확률이 0.5 미만이거나 priority가 0.82 미만이면 여기서 끝입니다. id·라벨·confidence·포함 확률만 `papers.jsonl`에 즉시 기록합니다. 실행이 중간에 죽어도 이미 판정한 수백 건을 다시 판정하지 않기 위해서입니다.
 8. **루프 2, 요약.** 통과한 논문만 GPT에 보냅니다. 제목과 초록만 주고, 설정 언어로 한 줄 요약과 문제·방법·결과·의의 한 문단을 받습니다. 링크·저자·인용은 쓰지 말라고 지시합니다. 모델이 지어낸 URL을 막기 위해서입니다.
+   - **코드·가중치·이미지.** 요약과 동시에, 초록과 논문 페이지에서 찾은 첫 GitHub 저장소를 GitHub API로 조회해 라이선스(SPDX)를 받고, README의 첫 이미지(배지 제외)를 대표 이미지 후보로 둡니다. 모델 가중치는 Hugging Face의 `api/arxiv/<id>/repos`가 이 논문에 연결된 모델을 돌려주면 그 첫 모델과 라이선스 태그를, 없으면 초록·페이지의 huggingface.co 링크를 씁니다. 대표 이미지는 Figure 1이 우선이고 없을 때 README 이미지입니다. 어느 조회가 실패해도 그 항목만 비고 실행은 계속됩니다. Actions에서는 `GITHUB_TOKEN`으로 GitHub API 한도를 올립니다.
 9. **기록.** 요약이 모두 끝난 뒤, 통과한 논문 전체를 제목·URL·토픽·태그·priority 등 전체 필드로 `papers.jsonl`에 한꺼번에 기록합니다. 게시보다 먼저 저장하므로 게시가 실패해도 내일 같은 논문이 다시 올라가지 않습니다. 5번이나 8번에서 실패한 논문은 어디에도 기록되지 않아 다음 실행이 다시 시도합니다.
-10. **리포트.** `reports/<날짜>.md`를 씁니다. 토픽과 상관없이 priority 높은 순 한 목록이고, 논문마다 arXiv 링크와 문서 끝 References를 피드 메타데이터로 프로그램이 붙입니다. 통과한 논문이 없는 날은 파일을 만들지 않습니다.
+10. **리포트.** `reports/<날짜>.md`를 씁니다. 토픽과 상관없이 priority 높은 순 한 목록이고, 논문마다 메타데이터 줄(소속 포함), 코드·가중치 줄(라이선스가 링크 텍스트), 대표 이미지, 요약이 실리며 arXiv 링크와 문서 끝 References를 피드 메타데이터로 프로그램이 붙입니다. 이미지는 저장하지 않고 arxiv.org 또는 GitHub 원본 URL을 그대로 씁니다. 통과한 논문이 없는 날은 파일을 만들지 않습니다.
 11. **게시.** `TEAMS_WEBHOOK_URL`이 있으면 Adaptive Card를 올립니다. 제목이 arXiv 링크이고 "Full report" 버튼이 마크다운으로 갑니다. 게시가 실패하면 실행은 빨간색으로 끝나지만 리포트 파일과 상태는 남습니다.
 12. **인용 확인.** 워크플로가 이어서 `citations` 명령을 돌립니다. 리포트된 지 30일 지난 논문의 인용 수를 Semantic Scholar에서 받아 `data/citations.jsonl`에 논문당 한 번 기록합니다. 매일 리포트에는 영향이 없고, 판정이 맞았는지 나중에 되짚는 데이터입니다.
 13. **커밋.** GitHub Actions가 `data/`와 `reports/`의 변경을 커밋합니다. finder가 실패했어도 그때까지 저장된 상태는 커밋됩니다.
@@ -186,7 +189,7 @@ node src/cli.ts citations --after-days 30 # 리포트된 지 30일 지난 논문
 pnpm typecheck && pnpm test
 ```
 
-SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사내 CA 인증서 경로를 지정하세요.
+SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사내 CA 인증서 경로(WSL/Ubuntu라면 보통 `/etc/ssl/certs/ca-certificates.crt`)를 지정하세요. 없으면 arXiv 호출이 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`로 실패합니다.
 
 종료 코드는 세 가지입니다. Actions 실행 목록에서 빨간색이면 아래 중 하나입니다.
 
@@ -303,7 +306,9 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 | `src/types.ts` | `Paper`, 판정 결과, 저장 레코드의 타입 |
 | `src/util.ts` | 동시 실행 제한(`mapLimit`), 타임존 날짜, 해시 |
 | `src/sources/arxiv.ts` | arXiv API 수집. 카테고리 전체 페이지네이션 또는 주제별 키워드 쿼리, 요청 간 3초 간격 |
-| `src/sources/semanticscholar.ts` | Semantic Scholar 배치 조회(500건씩). 저자 h-index와 인용 수 |
+| `src/sources/semanticscholar.ts` | Semantic Scholar 배치 조회(500건씩). 저자 h-index·소속과 인용 수 |
+| `src/sources/arxivhtml.ts` | arXiv HTML 페이지에서 저자 소속, Figure 1 URL, GitHub·Hugging Face 링크 추출 |
+| `src/sources/artifacts.ts` | 리포트 논문의 코드 저장소·라이선스(GitHub API), 모델 가중치·라이선스(Hugging Face API), README 이미지 |
 | `src/citations.ts` | `citations` 명령. 리포트된 지 N일 지난 논문의 인용 수를 한 번씩 기록 |
 | `src/compare.ts` | `compare` 명령. 정답셋을 여러 모델로 판정해 Jev와 같은 로그에 남기고, 모델별 정확도·비용 표(`reports/bench.md`)를 렌더 |
 | `src/llm/backend.ts` | `DecisionBackend`(choice·noul·score 질문에 답하는 `ask()`)와 `TextBackend`(글쓰기) 인터페이스 |
@@ -314,7 +319,7 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 | `src/loops/summarize.ts` | 루프 2: 요약. 제목과 초록에 있는 내용만 사용 |
 | `src/report.ts` | 마크다운 리포트. **레퍼런스는 피드 메타데이터로만 만들고 LLM이 쓰지 않습니다** |
 | `src/sinks/teams.ts` | Adaptive Card 게시. 페이로드 크기 제한에 맞춰 항목 수를 줄입니다 |
-| `data/papers.jsonl` | 지금까지 본 논문과 판정 결과. 중복 방지와 트렌드 집계의 원천. 탈락한 논문은 id·라벨·confidence·포함 확률만 남깁니다 |
+| `data/papers.jsonl` | 지금까지 본 논문과 판정 결과. 중복 방지와 트렌드 집계의 원천. 탈락한 논문은 id·라벨·confidence·포함 확률만 남기고, 리포트 논문은 매칭된 소속과 코드·가중치·이미지(`artifacts`)도 남깁니다 |
 | `data/decisions.jsonl` | 모든 판단 호출의 로그(백엔드, 모델, 입력 해시, 질문별 답과 확실성, 입력 토큰) |
 | `data/gold.jsonl` | 정답 라벨(id, label, source, runDate). 벤치마크 채점용 |
 | `data/citations.jsonl` | 리포트 논문의 인용 수 확인 기록(id, 실행일, 확인 시각, 경과 일수, 인용 수, 영향력 인용 수) |
@@ -324,7 +329,7 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 
 ## 리포트 형식
 
-논문은 토픽과 상관없이 우선순위(priority) 높은 순으로 하나의 목록에 실립니다. 토픽은 논문마다 메타데이터 줄에 표시되고, 게이트가 `none`을 고르면 "기타"입니다. 각 논문은 메타데이터 한 줄, 한 줄 요약, 문제·방법·결과·의의 한 문단으로 구성되고, 레퍼런스 번호는 문서 끝 References 목록을 가리킵니다.
+논문은 토픽과 상관없이 우선순위(priority) 높은 순으로 하나의 목록에 실립니다. 토픽은 논문마다 메타데이터 줄에 표시되고, 게이트가 `none`을 고르면 "기타"입니다. 각 논문은 메타데이터 한 줄(소속은 `gate.affiliations`에 맞는 기관을 앞에 두고 최대 3개), 코드·가중치 한 줄(없으면 "없음", 저장소는 있는데 라이선스가 없으면 "라이선스 미확인"), 대표 이미지(Figure 1 또는 README 첫 이미지, 없으면 생략), 한 줄 요약, 문제·방법·결과·의의 한 문단으로 구성되고, 레퍼런스 번호는 문서 끝 References 목록을 가리킵니다.
 
 ```markdown
 # 리서치 트렌드 리포트 · 2026-09-21
@@ -333,7 +338,11 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 
 ### <논문 제목> [1]
 
-priority 0.87 · World Models · core (0.91) · method · h-index 22 · A. Kim, B. Lee, C. Park et al. · 2026-09-19 · [arXiv:2609.01234](…) · world-model, video-generation
+priority 0.87 · World Models · core (0.91) · method · h-index 22 · A. Kim, B. Lee, C. Park et al. · 소속: NVIDIA Research, KAIST · 2026-09-19 · [arXiv:2609.01234](…) · world-model, video-generation
+
+코드: [Apache-2.0](https://github.com/…) · 가중치: [other](https://huggingface.co/…)
+
+![대표 이미지](https://arxiv.org/html/2609.01234v1/x1.png)
 
 **한 줄 요약**
 
@@ -418,6 +427,8 @@ GROUP BY ALL ORDER BY ALL;
 - Teams 카드의 "Full report" 링크는 게시 직후 몇 초간 404일 수 있습니다. 리포트 커밋이 게시 다음 단계이기 때문입니다.
 - 퍼블릭 레포는 60일간 활동이 없으면 GitHub가 예약 워크플로를 끕니다. 알림 메일이 오면 Actions 탭에서 다시 켜세요.
 - Semantic Scholar는 제출 후 며칠간 색인되지 않은 논문이 많습니다(도입 당일 기준 리포트 25건 중 10건만 색인). 그래서 저자 h-index 항은 일부 논문에만 붙고, 붙은 논문과 안 붙은 논문의 priority는 완전히 같은 잣대가 아닙니다. 색인된 논문 중 h-index가 낮으면 priority가 내려갈 수 있습니다. 편향이 거슬리면 `priorityWeights.author`를 낮추거나 0으로 두세요.
+- 소속·Figure 1은 arXiv의 HTML 렌더링에서 오므로 HTML이 없는 논문(LaTeX가 아닌 제출, 변환 실패)에는 없습니다. 소속이 이름 옆에 각주 번호로만 달린 논문도 놓칠 수 있습니다. 그런 논문은 소속 보너스를 받지 못하고 이미지 없이 실립니다. 2501.03575처럼 저자란에 기관명만 있는 논문도 소속이 비어 있습니다.
+- 코드·가중치는 초록과 논문 페이지에 링크가 있어야 찾습니다. 첫 GitHub 링크를 저장소로 보므로 논문이 남의 저장소를 먼저 인용하면 잘못 붙을 수 있습니다. Hugging Face의 논문-모델 연결은 모델 카드에 arXiv id를 적은 경우에만 있습니다.
 - 인용 수는 제출 직후엔 0이라 판정에 쓰지 않고, 30일 뒤 확인용으로만 기록합니다.
 - 소스는 현재 arXiv 하나입니다. 블로그 RSS와 GitHub 릴리스는 `src/sources/`에 같은 형태(`Paper[]` 반환)로 추가하면 됩니다.
 

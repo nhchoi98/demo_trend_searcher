@@ -2,16 +2,18 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FinderConfig } from "./config.ts";
 import type { DecisionBackend, TextBackend } from "./llm/backend.ts";
-import { triagePaper } from "./loops/triage.ts";
+import { combine, triagePaper, type Signals } from "./loops/triage.ts";
 import { summarize } from "./loops/summarize.ts";
 import { renderMarkdown, type RunStats } from "./report.ts";
 import { buildCard, postToTeams } from "./sinks/teams.ts";
+import { fetchArtifacts, type Artifacts } from "./sources/artifacts.ts";
 import { fetchArxiv } from "./sources/arxiv.ts";
-import { authorHIndex } from "./sources/semanticscholar.ts";
+import { fetchArxivHtml, type HtmlMeta } from "./sources/arxivhtml.ts";
+import { authorSignals, type AuthorSignals } from "./sources/semanticscholar.ts";
 import { costUsd } from "./compare.ts";
 import { Store } from "./store.ts";
 import type { Paper, ReportItem, SeenRecord } from "./types.ts";
-import { localDate, mapLimit } from "./util.ts";
+import { localDate, mapLimit, serialize } from "./util.ts";
 
 export interface Backends {
   decide: DecisionBackend;
@@ -28,8 +30,11 @@ export interface RunOptions {
   teamsWebhookUrl?: string;
   reportBaseUrl?: string;
   semanticScholarApiKey?: string;
+  githubToken?: string;
   /** Injectable for tests. */
   fetchPapers?: (config: FinderConfig) => Promise<Paper[]>;
+  fetchHtml?: (paper: Paper) => Promise<HtmlMeta>;
+  fetchArtifacts?: (paper: Paper, links: readonly string[]) => Promise<Artifacts>;
   now?: Date;
 }
 
@@ -72,14 +77,14 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
   // Author track record: one batch lookup for the whole run. Papers Semantic Scholar
   // has not indexed yet, or a failed lookup, just leave the author term out of priority.
-  let hIndex = new Map<string, number>();
+  let authors = new Map<string, AuthorSignals>();
   if (config.gate.priorityWeights.author > 0) {
     try {
-      hIndex = await authorHIndex(
+      authors = await authorSignals(
         batch.map((p) => p.id),
         options.semanticScholarApiKey ? { apiKey: options.semanticScholarApiKey } : {},
       );
-      console.log(`[run] author h-index known for ${hIndex.size}/${batch.length} papers`);
+      console.log(`[run] author h-index known for ${authors.size}/${batch.length} papers`);
     } catch (error) {
       console.warn("[run] Semantic Scholar lookup failed; priority uses label and significance only:", error instanceof Error ? error.message : error);
     }
@@ -88,9 +93,18 @@ export async function run(options: RunOptions): Promise<RunResult> {
   // Decision-backend usage per "backend:model", for a cost line at the end of the run.
   const usage = new Map<string, { calls: number; inputTokens: number; outputTokens: number; model: string }>();
 
+  // The paper's own HTML page (affiliations, figure 1, repo links): one polite GET at a time.
+  const fetchHtml = options.fetchHtml ?? serialize(fetchArxivHtml, config.arxiv.requestDelayMs);
+  const artifactsOf = options.fetchArtifacts ?? ((paper, links) => fetchArtifacts(paper, links, options.githubToken ? { githubToken: options.githubToken } : {}));
+  const boost = config.gate.affiliations.length ? config.gate.affiliationBoost : 0;
+  let htmlFetches = 0;
+
   const results = await mapLimit(batch, config.concurrency, async (paper): Promise<Processed | undefined> => {
-    const h = hIndex.get(paper.id);
-    const { triage, log } = await triagePaper(paper, config, backends.decide, backends.escalate, h !== undefined ? { authorHIndex: h } : {});
+    const s2 = authors.get(paper.id);
+    const signals: Signals = s2 ? { authorHIndex: s2.hIndex } : {};
+    const judged = await triagePaper(paper, config, backends.decide, backends.escalate, signals);
+    const { answers, log } = judged;
+    let { triage } = judged;
     await store.appendDecisions(log);
     for (const record of log) {
       const key = `${record.backend}:${record.model}`;
@@ -100,6 +114,17 @@ export async function run(options: RunOptions): Promise<RunResult> {
       entry.outputTokens += record.outputTokens ?? 0;
       usage.set(key, entry);
     }
+
+    // Only papers that are in, or that the affiliation bonus could put in, are worth a page fetch.
+    let meta: HtmlMeta = { affiliations: [], links: [] };
+    let affiliations: string[] = [];
+    if (triage.includeProbability >= config.gate.includeThreshold && (triage.included || triage.priority + boost >= config.gate.minPriority)) {
+      htmlFetches++;
+      meta = await fetchHtml(paper);
+      affiliations = meta.affiliations.length ? meta.affiliations : (s2?.affiliations ?? []);
+      if (affiliations.length) triage = combine(answers, config, { ...signals, affiliations });
+    }
+
     const seen: SeenRecord = {
       id: paper.id,
       version: paper.version,
@@ -108,6 +133,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
       includeProbability: triage.includeProbability,
       matchedTopics: paper.matchedTopics,
       ...(triage.authorHIndex !== undefined ? { authorHIndex: triage.authorHIndex } : {}),
+      ...(triage.affiliations ? { affiliations: triage.affiliations } : {}),
       reported: false,
       runDate: date,
     };
@@ -117,9 +143,10 @@ export async function run(options: RunOptions): Promise<RunResult> {
       await store.appendSeen([seen]);
       return undefined;
     }
-    const summary = await summarize(paper, config, backends.text);
+    const [summary, artifacts] = await Promise.all([summarize(paper, config, backends.text), artifactsOf(paper, meta.links)]);
+    if (meta.imageUrl) artifacts.imageUrl = meta.imageUrl; // figure 1 beats the README image
     return {
-      item: { paper, triage, summary },
+      item: { paper, triage, summary, affiliations, artifacts },
       seen: {
         ...seen,
         reported: true,
@@ -132,6 +159,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
         significance: triage.significance,
         priority: triage.priority,
         ...(triage.borderline ? { borderline: true } : {}),
+        artifacts,
       },
     };
   });
@@ -148,6 +176,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     }
   }
 
+  if (htmlFetches) console.log(`[run] fetched ${htmlFetches} arXiv HTML pages for affiliations, figures and links`);
   for (const [key, u] of usage) {
     const usd = costUsd(u.inputTokens, u.outputTokens, u.model, config.models.pricing);
     console.log(`[run] loop 1 usage ${key}: ${u.calls} calls, ${u.inputTokens} input tokens` + (usd === undefined ? "" : `, est. $${usd.toFixed(2)}`));

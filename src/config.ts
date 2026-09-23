@@ -77,6 +77,14 @@ export interface FinderConfig {
     /** Papers whose priority is below this are not reported even when the label passes. 0 turns it off. */
     minPriority: number;
     /**
+     * Author affiliations the reader cares about (case-insensitive substring match against
+     * what the arXiv HTML page or Semantic Scholar lists). A match adds `affiliationBoost`
+     * to the priority when the gate's topic is not "none". The gate itself is unchanged:
+     * the paper still has to pass includeThreshold and minPriority. Empty = off.
+     */
+    affiliations: string[];
+    affiliationBoost: number;
+    /**
      * Cost guard: at most this many new papers are judged per run, newest first.
      * The rest stay unseen and are picked up by later runs while inside the window.
      */

@@ -19,6 +19,12 @@ interface Labels {
   none: string;
   other: string;
   references: string;
+  affiliation: string;
+  code: string;
+  weights: string;
+  notFound: string;
+  licenseUnknown: string;
+  figure: string;
 }
 
 const LABELS: Record<string, Labels> = {
@@ -34,6 +40,12 @@ const LABELS: Record<string, Labels> = {
     none: "오늘은 기준을 통과한 신규 논문이 없습니다.",
     other: "기타",
     references: "References",
+    affiliation: "소속",
+    code: "코드",
+    weights: "가중치",
+    notFound: "없음",
+    licenseUnknown: "라이선스 미확인",
+    figure: "대표 이미지",
   },
   default: {
     title: "Research Trend Report",
@@ -47,11 +59,31 @@ const LABELS: Record<string, Labels> = {
     none: "No new papers passed the gate today.",
     other: "Other",
     references: "References",
+    affiliation: "affiliation",
+    code: "code",
+    weights: "weights",
+    notFound: "none",
+    licenseUnknown: "license unknown",
+    figure: "Figure 1",
   },
 };
 
 export function labelsFor(language: string): Labels {
   return LABELS[language] ?? (LABELS.default as Labels);
+}
+
+/** Matched affiliations first, at most three. */
+export function affiliationLine(item: Pick<ReportItem, "affiliations" | "triage">): string {
+  const matched = item.triage.affiliations ?? [];
+  const rest = item.affiliations.filter((a) => !matched.some((m) => a.toLowerCase().includes(m.toLowerCase())));
+  return [...item.affiliations.filter((a) => !rest.includes(a)), ...rest].slice(0, 3).join(", ");
+}
+
+/** "code: [MIT](url) · weights: [other](url)"; a missing artifact reads "code: none". */
+export function artifactLine(artifacts: ReportItem["artifacts"], labels: Labels): string {
+  const one = (name: string, a: { url: string; license?: string } | undefined): string =>
+    `${name}: ${a ? `[${a.license ?? labels.licenseUnknown}](${a.url})` : labels.notFound}`;
+  return `${one(labels.code, artifacts.code)} · ${one(labels.weights, artifacts.weights)}`;
 }
 
 function authorLine(paper: Paper): string {
@@ -82,16 +114,21 @@ export function renderMarkdown(date: string, items: readonly ReportItem[], stats
 
   // One flat list, highest priority first. The topic is shown per paper instead of as a section.
   const references: string[] = [];
-  for (const { paper, summary, triage } of sortItems(items)) {
+  for (const item of sortItems(items)) {
+    const { paper, summary, triage, artifacts } = item;
     const ref = references.push(formatReference(references.length + 1, paper));
     const topic = config.topics.find((t) => t.key === triage.topic)?.title ?? labels.other;
     const tags = triage.tags.length ? ` · ${triage.tags.join(", ")}` : "";
     const miss = stats.keywordMissed !== undefined && paper.matchedTopics.length === 0 ? ` · ${labels.keywordMiss}` : "";
+    const affiliation = item.affiliations.length ? ` · ${labels.affiliation}: ${affiliationLine(item)}` : "";
     lines.push(
       `### ${paper.title} [${ref}]`,
       "",
-      `priority ${triage.priority.toFixed(2)} · ${topic} · ${triage.label} (${triage.labelConfidence.toFixed(2)})${triage.borderline ? ` · ${labels.borderline}` : ""} · ${triage.contribution}${triage.authorHIndex !== undefined ? ` · h-index ${triage.authorHIndex}` : ""} · ${authorLine(paper)} · ${paper.published.slice(0, 10)} · [arXiv:${paper.id}](${paper.url})${tags}${miss}`,
+      `priority ${triage.priority.toFixed(2)} · ${topic} · ${triage.label} (${triage.labelConfidence.toFixed(2)})${triage.borderline ? ` · ${labels.borderline}` : ""} · ${triage.contribution}${triage.authorHIndex !== undefined ? ` · h-index ${triage.authorHIndex}` : ""} · ${authorLine(paper)}${affiliation} · ${paper.published.slice(0, 10)} · [arXiv:${paper.id}](${paper.url})${tags}${miss}`,
       "",
+      artifactLine(artifacts, labels),
+      "",
+      ...(artifacts.imageUrl ? [`![${labels.figure}](${artifacts.imageUrl})`, ""] : []),
       `**${summary.oneLiner}**`,
       "",
       [summary.problem, summary.method, summary.results, summary.whyItMatters].filter(Boolean).join(" "),

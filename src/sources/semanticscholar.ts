@@ -6,7 +6,14 @@ const BATCH = 500;
 export interface S2Paper {
   citationCount?: number;
   influentialCitationCount?: number;
-  authors?: Array<{ hIndex?: number | null }>;
+  authors?: Array<{ hIndex?: number | null; affiliations?: string[] | null }>;
+}
+
+export interface AuthorSignals {
+  /** Highest h-index among the authors. */
+  hIndex: number;
+  /** Distinct affiliations, in author order. Often empty: Semantic Scholar rarely has them. */
+  affiliations: string[];
 }
 
 export interface LookupOptions {
@@ -42,8 +49,13 @@ export async function lookup(ids: readonly string[], fields: string, options: Lo
   return out;
 }
 
-/** Highest h-index among a paper's authors, for every paper Semantic Scholar knows. */
-export async function authorHIndex(ids: readonly string[], options: LookupOptions = {}): Promise<Map<string, number>> {
-  const rows = await lookup(ids, "authors.hIndex", options);
-  return new Map([...rows].map(([id, row]) => [id, Math.max(0, ...(row.authors ?? []).map((a) => a.hIndex ?? 0))]));
+/** Author h-index and affiliations, for every paper Semantic Scholar knows. One batch call. */
+export async function authorSignals(ids: readonly string[], options: LookupOptions = {}): Promise<Map<string, AuthorSignals>> {
+  const rows = await lookup(ids, "authors.hIndex,authors.affiliations", options);
+  return new Map(
+    [...rows].map(([id, row]) => {
+      const authors = row.authors ?? [];
+      return [id, { hIndex: Math.max(0, ...authors.map((a) => a.hIndex ?? 0)), affiliations: [...new Set(authors.flatMap((a) => a.affiliations ?? []))] }];
+    }),
+  );
 }

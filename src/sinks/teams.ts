@@ -1,5 +1,5 @@
 import type { FinderConfig } from "../config.ts";
-import { labelsFor, sortItems, type RunStats } from "../report.ts";
+import { artifactLine, labelsFor, sortItems, type RunStats } from "../report.ts";
 import type { ReportItem } from "../types.ts";
 
 /** Teams rejects webhook payloads over ~28 KB; stay well under it. */
@@ -28,7 +28,7 @@ export function buildCard(
   const make = (count: number): unknown => {
     const shown = sortItems(items).slice(0, count);
     const body: CardElement[] = [...header];
-    for (const { paper, summary, triage } of shown) {
+    for (const { paper, summary, triage, artifacts } of shown) {
       body.push(
         {
           type: "TextBlock",
@@ -37,10 +37,11 @@ export function buildCard(
           wrap: true,
           separator: true,
         },
+        ...(artifacts.imageUrl ? [{ type: "Image", url: artifacts.imageUrl, size: "Large", spacing: "Small" }] : []),
         { type: "TextBlock", text: summary.oneLiner, wrap: true, spacing: "Small" },
         {
           type: "TextBlock",
-          text: `arXiv:${paper.id} · ${paper.published.slice(0, 10)} · ${triage.label} · ${triage.contribution}`,
+          text: `arXiv:${paper.id} · ${paper.published.slice(0, 10)} · ${triage.label} · ${triage.contribution} · ${escapeMd(artifactLine(artifacts, labels))}`,
           isSubtle: true,
           size: "Small",
           spacing: "Small",

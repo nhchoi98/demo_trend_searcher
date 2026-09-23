@@ -43,6 +43,7 @@ export default defineConfig({
     benchmark: "The paper introduces a benchmark or dataset.",
     survey: "The paper is a survey or review.",
     cosmos: "The paper uses or mentions NVIDIA Cosmos.",
+    "code-release": "The paper states that its code or model weights are publicly released.",
   },
 
   arxiv: {
@@ -66,6 +67,9 @@ export default defineConfig({
     priorityWeights: { label: 0.6, significance: 0.4, author: 0.15 },
     authorHIndexCap: 40,
     minPriority: 0.82,
+    // Papers from these organizations get +affiliationBoost priority (they still pass the same gate).
+    affiliations: ["NVIDIA"],
+    affiliationBoost: 0.05,
     // Upper bound on gate calls (and therefore cost) per run. The very first
     // run sees the whole lookback window at once, so it may take 2-3 runs to catch up.
     maxNewPerRun: 1500,

@@ -17,7 +17,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45 # loop 1 plus one arXiv HTML page (3 s apart) per candidate paper
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +37,7 @@ jobs:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # code/weights licence lookups: 5000 req/h instead of 60
           FINDER_JEV_MODEL: ${{ vars.FINDER_JEV_MODEL }}
           FINDER_ESCALATE_MODEL: ${{ vars.FINDER_ESCALATE_MODEL }}
           FINDER_SUMMARY_MODEL: ${{ vars.FINDER_SUMMARY_MODEL }}

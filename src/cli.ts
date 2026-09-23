@@ -101,6 +101,7 @@ async function main(): Promise<number> {
     ...(backends ? { backends } : {}),
     ...(env.TEAMS_WEBHOOK_URL ? { teamsWebhookUrl: env.TEAMS_WEBHOOK_URL } : {}),
     ...s2Key,
+    ...(env.GITHUB_TOKEN ? { githubToken: env.GITHUB_TOKEN } : {}),
     ...(base ? { reportBaseUrl: base } : {}),
   });
 

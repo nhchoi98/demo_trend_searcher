@@ -48,14 +48,15 @@ class FakeDecide implements DecisionBackend {
     const text = JSON.stringify(state);
     if (text.includes("BOOM")) throw new Error("backend exploded");
     const noise = text.includes("Noise");
+    const modest = text.includes("Modest"); // significance 1.5/3 -> priority 0.8 with core
     const answers: Record<string, unknown> = {};
     for (const [name, q] of Object.entries(questions)) {
       if (q.type === "noul") {
         answers[name] = { type: "noul", probability: name === "tag:world-model" && !noise ? 0.9 : 0.1 };
       } else if (q.type === "score") {
-        answers[name] = { type: "score", score: 3, confidence: this.confidence };
+        answers[name] = { type: "score", score: modest ? 1.5 : 3, confidence: this.confidence };
       } else {
-        const choice = name === "label" ? (noise ? "irrelevant" : "core") : name === "topic" ? "physical-ai" : "method";
+        const choice = name === "label" ? (noise ? "irrelevant" : "core") : name === "topic" ? (text.includes("Untopical") ? "none" : "physical-ai") : "method";
         answers[name] = { type: "choice", choice, confidence: this.confidence };
       }
     }
@@ -82,13 +83,23 @@ class FakeText implements TextBackend {
 
 const NOW = new Date("2026-09-21T02:17:00Z");
 
+/** Keeps the pipeline off arxiv.org / GitHub / Hugging Face. Titles steer the fake page. */
+const offline = {
+  fetchHtml: async (p: Paper) => ({
+    affiliations: p.title.includes("NVIDIA") ? ["NVIDIA Research", "Stanford University"] : p.title.includes("Modest") ? ["MIT"] : [],
+    links: ["https://github.com/example/repo"],
+    ...(p.title.includes("Modest") ? {} : { imageUrl: "https://arxiv.org/html/x/fig1.png" }),
+  }),
+  fetchArtifacts: async () => ({ code: { url: "https://github.com/example/repo", license: "MIT" }, imageUrl: "https://raw.githubusercontent.com/example/repo/HEAD/teaser.png" }),
+};
+
 test("run: gates, summarizes, persists, and skips seen papers on the next run", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "trend-finder-"));
   try {
     const papers = [paper("2609.00001", "Good World Model"), paper("2609.00002", "Noise Paper"), paper("2609.00003", "BOOM Paper")];
     const text = new FakeText();
     const backends: Backends = { decide: new FakeDecide("small", 0.95), text };
-    const options = { config: baseConfig, rootDir, dryRun: false, backends, now: NOW, fetchPapers: async () => papers };
+    const options = { ...offline, config: baseConfig, rootDir, dryRun: false, backends, now: NOW, fetchPapers: async () => papers };
 
     const first = await run(options);
     assert.equal(first.date, "2026-09-21"); // 02:17Z is 11:17 in Asia/Seoul
@@ -111,6 +122,8 @@ test("run: gates, summarizes, persists, and skips seen papers on the next run", 
     // The gate's topic wins over the keyword-matched topic when choosing the section.
     assert.match(report, /### Good World Model \[1\]\n\npriority 1\.00 · Physical AI \/ Embodied AI · core/);
     assert.match(report, /Problem\. Method\. Results\. Why\./);
+    assert.match(report, /\n코드: \[MIT\]\(https:\/\/github\.com\/example\/repo\) · 가중치: 없음\n\n!\[대표 이미지\]\(https:\/\/arxiv\.org\/html\/x\/fig1\.png\)\n/, "figure 1 beats the README image");
+    assert.deepEqual(seen[1]?.artifacts, { code: { url: "https://github.com/example/repo", license: "MIT" }, imageUrl: "https://arxiv.org/html/x/fig1.png" });
     assert.match(report, /1\. Ada Example, Bo Sample\. "Good World Model\." arXiv:2609\.00001 \(2026-09-18\)\. https:\/\/arxiv\.org\/abs\/2609\.00001/);
     assert.doesNotMatch(report, /Noise Paper/);
 
@@ -128,6 +141,7 @@ test("run: by default an unsure judgment is NOT re-judged; the paper is reported
   try {
     const big = new FakeDecide("big", 0.9);
     const result = await run({
+      ...offline,
       config: baseConfig,
       rootDir,
       dryRun: false,
@@ -151,6 +165,7 @@ test("run: with gate.escalate on, low confidence escalates and logs both decisio
     const small = new FakeDecide("small", 0.4);
     const big = new FakeDecide("big", 0.9);
     const result = await run({
+      ...offline,
       config: { ...baseConfig, gate: { ...baseConfig.gate, escalate: true } },
       rootDir,
       dryRun: false,
@@ -179,6 +194,7 @@ test("run: maxNewPerRun defers the oldest papers and keyword misses are counted"
     const newer = { ...paper("2609.00011", "Newer Paper Without Any Topic Phrase"), matchedTopics: [] };
     const config = { ...baseConfig, gate: { ...baseConfig.gate, maxNewPerRun: 1 } };
     const options = {
+      ...offline,
       config,
       rootDir,
       dryRun: false,
@@ -194,6 +210,41 @@ test("run: maxNewPerRun defers the oldest papers and keyword misses are counted"
 
     const second = await run(options);
     assert.deepEqual(second.items.map((i) => i.paper.id), ["2609.00010"], "deferred paper is picked up next run");
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("run: a matching affiliation adds the bonus, but only on-topic papers and never past the gate", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "trend-finder-"));
+  try {
+    const fetched: string[] = [];
+    const config = { ...baseConfig, gate: { ...baseConfig.gate, minPriority: 0.82, affiliations: ["nvidia"], affiliationBoost: 0.05 } };
+    const result = await run({
+      ...offline,
+      fetchHtml: async (p) => (fetched.push(p.id), offline.fetchHtml(p)),
+      config,
+      rootDir,
+      dryRun: false,
+      backends: { decide: new FakeDecide("small", 0.95), text: new FakeText() },
+      now: NOW,
+      fetchPapers: async () => [
+        paper("2609.00021", "Modest NVIDIA Paper"),
+        paper("2609.00022", "Modest Other Paper"),
+        paper("2609.00023", "Modest NVIDIA Untopical Paper"),
+        paper("2609.00024", "Noise Paper"),
+      ],
+    });
+    assert.deepEqual(result.items.map((i) => i.paper.id), ["2609.00021"], "0.8 + 0.05 passes 0.82; no match or topic none stays at 0.8");
+    assert.deepEqual(fetched.sort(), ["2609.00021", "2609.00022", "2609.00023"], "irrelevant papers are never fetched");
+    assert.deepEqual(result.items[0]?.triage.affiliations, ["nvidia"]);
+    assert.equal(result.items[0]?.triage.priority, 0.85);
+    const report = await readFile(join(rootDir, "reports", "2026-09-21.md"), "utf8");
+    assert.match(report, /priority 0\.85 · .* · 소속: NVIDIA Research, Stanford University · /);
+    assert.match(report, /!\[대표 이미지\]\(https:\/\/raw\.githubusercontent\.com\/example\/repo\/HEAD\/teaser\.png\)/, "README image when the page has no figure");
+    const seen = await readJsonl<SeenRecord>(join(rootDir, "data", "papers.jsonl"));
+    assert.deepEqual(seen.find((s) => s.id === "2609.00021")?.affiliations, ["nvidia"]);
+    assert.equal(seen.find((s) => s.id === "2609.00022")?.affiliations, undefined);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
@@ -227,6 +278,8 @@ test("buildCard stays under the Teams payload limit", () => {
       priority: 0.8,
     },
     summary: { oneLiner: long, problem: "", method: "", results: "", whyItMatters: "" },
+    affiliations: [],
+    artifacts: { imageUrl: "https://arxiv.org/html/x/fig1.png" },
   }));
   const payload = buildCard("2026-09-21", items, { fetched: 30, fresh: 30, failed: 0, deferred: 0 }, baseConfig, "https://example.com/r.md");
   const bytes = Buffer.byteLength(JSON.stringify(payload));

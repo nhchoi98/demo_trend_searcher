@@ -1,3 +1,5 @@
+import type { Artifacts } from "./sources/artifacts.ts";
+
 /** A candidate item found by a source (currently arXiv only). */
 export interface Paper {
   /** Version-less arXiv id, e.g. "2501.03575". Used as the dedupe key. */
@@ -40,6 +42,8 @@ export interface Triage {
   priority: number;
   /** Highest h-index among the authors (Semantic Scholar). Absent when the paper is not indexed yet. */
   authorHIndex?: number;
+  /** Entries of gate.affiliations that matched an author affiliation (priority was boosted). */
+  affiliations?: string[];
 }
 
 export interface Summary {
@@ -55,6 +59,9 @@ export interface ReportItem {
   paper: Paper;
   triage: Triage;
   summary: Summary;
+  /** Author affiliations as listed on the paper (arXiv HTML), or from Semantic Scholar. */
+  affiliations: string[];
+  artifacts: Artifacts;
 }
 
 /**
@@ -83,6 +90,8 @@ export interface SeenRecord {
   significance?: number;
   priority?: number;
   borderline?: boolean;
+  affiliations?: string[];
+  artifacts?: Artifacts;
 }
 
 /** One line of data/gold.jsonl: a human (or panel) label used to score every backend in reports/bench.md. */

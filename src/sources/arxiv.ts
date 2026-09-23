@@ -97,7 +97,7 @@ export function parseFeed(xml: string, topicKey: string): Paper[] {
 
 export type FetchText = (url: string) => Promise<string>;
 
-async function fetchWithRetry(url: string, attempts = 3): Promise<string> {
+export async function fetchWithRetry(url: string, attempts = 3): Promise<string> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
