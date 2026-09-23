@@ -162,6 +162,7 @@ function toRecord(paper: Paper, inputHash: string, result: AskResult<Questions>,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
     latencyMs: Math.round(latencyMs),
+    ...(result.served ? { served: result.served } : {}),
     ...(escalatedFrom ? { escalatedFrom } : {}),
   };
 }

@@ -87,10 +87,10 @@ function render(ids: string[], gold: Map<string, string>, byModel: Map<string, M
   const lines = [
     "# Loop 1 benchmark",
     "",
-    `${ids.length} papers, ${gold.size} with a gold label (data/gold.jsonl). Jev's confidences come from its probability distribution; generative models write theirs down themselves, so only labels are compared. Cost is estimated from models.pricing in finder.config.ts.`,
+    `${ids.length} papers, ${gold.size} with a gold label (data/gold.jsonl). Jev's confidences come from its probability distribution; generative models write theirs down themselves, so only labels are compared. "served as" is what the endpoint reported running when it differs from the requested name (a dated snapshot, or the upstream model/provider behind a router). Cost is estimated from models.pricing in finder.config.ts.`,
     "",
-    "| model | n (gold) | label acc | include acc | include precision | include recall | in tok | out tok | latency | est. $/1000 papers |",
-    "|---|---|---|---|---|---|---|---|---|---|",
+    "| model | served as | n (gold) | label acc | include acc | include precision | include recall | in tok | out tok | latency | est. $/1000 papers |",
+    "|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   for (const key of models) {
     const m = byModel.get(key) as Map<string, DecisionRecord>;
@@ -103,8 +103,9 @@ function render(ids: string[], gold: Map<string, string>, byModel: Map<string, M
     const outTok = mean(all.map((d) => d.outputTokens ?? 0));
     const lat = all.filter((d) => d.latencyMs !== undefined).map((d) => d.latencyMs as number);
     const usd = costUsd(inTok, outTok, key.slice(key.indexOf(":") + 1), config.models.pricing);
+    const served = [...new Set(all.map((d) => d.served).filter(Boolean))].join(", ") || "-";
     lines.push(
-      `| ${key} | ${rows.length} | ${pct(rows.filter(([g, p]) => g === p).length, rows.length)} | ${pct(rows.filter(([g, p]) => inc(g) === inc(p)).length, rows.length)} | ${pct(tp, predInc)} | ${pct(tp, goldInc)} | ${Math.round(inTok)} | ${Math.round(outTok)} | ${lat.length ? `${Math.round(mean(lat))} ms` : "-"} | ${usd === undefined ? "-" : `$${(usd * 1000).toFixed(2)}`} |`,
+      `| ${key} | ${served} | ${rows.length} | ${pct(rows.filter(([g, p]) => g === p).length, rows.length)} | ${pct(rows.filter(([g, p]) => inc(g) === inc(p)).length, rows.length)} | ${pct(tp, predInc)} | ${pct(tp, goldInc)} | ${Math.round(inTok)} | ${Math.round(outTok)} | ${lat.length ? `${Math.round(mean(lat))} ms` : "-"} | ${usd === undefined ? "-" : `$${(usd * 1000).toFixed(2)}`} |`,
     );
   }
 

@@ -81,12 +81,13 @@ export default defineConfig({
     jev: "jev-latest",
     escalate: "gpt-5",
     summary: "gpt-5",
-    // USD per 1M tokens. Check your provider's current price list; these are placeholders
-    // to fill in. Keys are the model names as they appear in data/decisions.jsonl.
+    // USD per 1M tokens, standard tier, as published 2026-09 (OpenAI: developers.openai.com/api/docs/pricing;
+    // Jev: TypeSafe early-access price, output is free). Keys are model names as they appear in data/decisions.jsonl.
     pricing: {
-      "jev-1.13.0": { input: 0, output: 0 },
-      "gpt-5": { input: 0, output: 0 },
-      "gpt-5-mini": { input: 0, output: 0 },
+      "jev-1.13.0": { input: 0.042, output: 0 },
+      "gpt-5": { input: 1.25, output: 10 },
+      "gpt-5-mini": { input: 0.25, output: 2 },
+      "gpt-5-nano": { input: 0.05, output: 0.4 },
     },
   },
 

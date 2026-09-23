@@ -76,6 +76,12 @@ export interface AskResult<Q extends Questions> {
   backend: string;
   /** The concrete model that answered (e.g. "jev-1.13.0"), not the alias that was requested. */
   model: string;
+  /**
+   * What the endpoint reports it actually ran, when that differs from `model`: a dated
+   * snapshot, or on a router like OpenRouter the upstream model and provider. Lets the
+   * benchmark show what a name really resolved to.
+   */
+  served?: string;
   inputTokens: number;
   /** 0 for Jev: it emits probabilities, not tokens. */
   outputTokens: number;

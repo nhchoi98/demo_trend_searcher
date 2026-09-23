@@ -14,6 +14,8 @@ interface Structured<T> {
   value: T;
   inputTokens: number;
   outputTokens: number;
+  /** completion.model, plus the routing provider when the endpoint (OpenRouter) reports one. */
+  served: string;
 }
 
 async function structured<T>(
@@ -40,7 +42,13 @@ async function structured<T>(
   if (choice?.finish_reason === "length") throw new Error(`${name}: output truncated`);
   const content = choice?.message.content;
   if (!content) throw new Error(`${name}: empty completion`);
-  return { value: JSON.parse(content) as T, inputTokens: completion.usage?.prompt_tokens ?? 0, outputTokens: completion.usage?.completion_tokens ?? 0 };
+  const provider = (completion as { provider?: unknown }).provider;
+  return {
+    value: JSON.parse(content) as T,
+    inputTokens: completion.usage?.prompt_tokens ?? 0,
+    outputTokens: completion.usage?.completion_tokens ?? 0,
+    served: completion.model + (typeof provider === "string" ? ` via ${provider}` : ""),
+  };
 }
 
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
@@ -104,7 +112,7 @@ export class OpenAIDecisionBackend implements DecisionBackend {
     const schema: JsonSchema = { type: "object", additionalProperties: false, required: Object.keys(properties), properties };
 
     type Raw = Record<string, { choice?: string; level?: number; confidence?: number; probability?: number }>;
-    const { value: raw, inputTokens, outputTokens } = await structured<Raw>(this.#client, this.model, "decisions", system, user, schema);
+    const { value: raw, inputTokens, outputTokens, served } = await structured<Raw>(this.#client, this.model, "decisions", system, user, schema);
 
     const answers: Record<string, unknown> = {};
     names.forEach((name, i) => {
@@ -119,7 +127,7 @@ export class OpenAIDecisionBackend implements DecisionBackend {
         answers[name] = { type: "score", score: a.level ?? 0, confidence: clamp01(a.confidence ?? 0) };
       }
     });
-    return { answers: answers as AnswersFor<Q>, backend: this.id, model: this.model, inputTokens, outputTokens };
+    return { answers: answers as AnswersFor<Q>, backend: this.id, model: this.model, ...(served && served !== this.model ? { served } : {}), inputTokens, outputTokens };
   }
 }
 

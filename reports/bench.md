@@ -1,11 +1,11 @@
 # Loop 1 benchmark
 
-249 papers, 249 with a gold label (data/gold.jsonl). Jev's confidences come from its probability distribution; generative models write theirs down themselves, so only labels are compared. Cost is estimated from models.pricing in finder.config.ts.
+249 papers, 249 with a gold label (data/gold.jsonl). Jev's confidences come from its probability distribution; generative models write theirs down themselves, so only labels are compared. "served as" is what the endpoint reported running when it differs from the requested name (a dated snapshot, or the upstream model/provider behind a router). Cost is estimated from models.pricing in finder.config.ts.
 
-| model | n (gold) | label acc | include acc | include precision | include recall | in tok | out tok | latency | est. $/1000 papers |
-|---|---|---|---|---|---|---|---|---|---|
-| jev:jev-1.13.0 | 249 | 91% | 94% | 90% | 100% | 1479 | 0 | - | - |
-| openai:gpt-5 | 249 | 45% | 69% | 63% | 100% | 1536 | 0 | - | - |
+| model | served as | n (gold) | label acc | include acc | include precision | include recall | in tok | out tok | latency | est. $/1000 papers |
+|---|---|---|---|---|---|---|---|---|---|---|
+| jev:jev-1.13.0 | - | 249 | 91% | 94% | 90% | 100% | 1479 | 0 | - | - |
+| openai:gpt-5 | - | 249 | 45% | 69% | 63% | 100% | 1536 | 0 | - | - |
 
 ## jev:jev-1.13.0: label confusion (rows gold, columns jev:jev-1.13.0)
 

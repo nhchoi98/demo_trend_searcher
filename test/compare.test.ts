@@ -60,9 +60,9 @@ test("compare: runs every model on the gold set, skips answered pairs, scores al
     assert.ok((log.at(-1)?.latencyMs ?? -1) >= 0);
 
     // Jev: 2/3 labels right; include right on all 3. m1: b right, c wrong (core). m2: only c right; predicts no include.
-    assert.match(md, /\| jev:jev-1 \| 3 \| 67% \| 100% \| 100% \| 100% \| 500 \| 0 \| 20 ms \| - \|/);
-    assert.match(md, /\| openai:m1 \| 3 \| 67% \| 67% \| 67% \| 100% \| 833 \| 67 \| \d+ ms \| \$1\.50 \|/);
-    assert.match(md, /\| openai:m2 \| 3 \| 33% \| 33% \| - \| 0% \|/);
+    assert.match(md, /\| jev:jev-1 \| - \| 3 \| 67% \| 100% \| 100% \| 100% \| 500 \| 0 \| 20 ms \| - \|/);
+    assert.match(md, /\| openai:m1 \| - \| 3 \| 67% \| 67% \| 67% \| 100% \| 833 \| 67 \| \d+ ms \| \$1\.50 \|/);
+    assert.match(md, /\| openai:m2 \| - \| 3 \| 33% \| 33% \| - \| 0% \|/);
     assert.match(md, /## jev:jev-1 vs openai:m1: label disagreements \(2\)/);
     assert.match(md, /\| \[b\]\(https:\/\/arxiv\.org\/abs\/b\) \| adjacent \| core \(0\.8\) \| adjacent \(0\.9\) \| Paper b \|/);
     assert.match(md, /\| \[a\]\(https:\/\/arxiv\.org\/abs\/a\) \| core \| core \(0\.8\) \| irrelevant \(0\.9\) \| Paper a \|/, "a fetched title wins");

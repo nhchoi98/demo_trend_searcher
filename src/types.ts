@@ -130,5 +130,7 @@ export interface DecisionRecord {
   /** Absent in records written before the benchmark fields were added; read as 0. */
   outputTokens?: number;
   latencyMs?: number;
+  /** What the endpoint said it ran, when it differs from `model` (see AskResult.served). */
+  served?: string;
   escalatedFrom?: string;
 }
