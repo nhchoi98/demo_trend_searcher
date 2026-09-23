@@ -97,13 +97,17 @@ export function parseFeed(xml: string, topicKey: string): Paper[] {
 
 export type FetchText = (url: string) => Promise<string>;
 
-export async function fetchWithRetry(url: string, attempts = 3): Promise<string> {
+/**
+ * arXiv rate-limits shared GitHub-runner IPs (429) and sometimes stalls right after
+ * its daily announcement, so back off for a while instead of giving up in a minute.
+ */
+export async function fetchWithRetry(url: string, attempts = 5): Promise<string> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const response = await fetch(url, {
         headers: { "User-Agent": "trend-finder (https://github.com; daily research digest)" },
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(90_000),
       });
       if (response.ok) return await response.text();
       lastError = new Error(`arXiv responded ${response.status}`);
@@ -112,7 +116,8 @@ export async function fetchWithRetry(url: string, attempts = 3): Promise<string>
     } catch (error) {
       lastError = error;
     }
-    await sleep(5_000 * attempt);
+    console.warn(`[arxiv] attempt ${attempt}/${attempts} failed (${lastError instanceof Error ? lastError.message : lastError}); waiting ${30 * attempt}s`);
+    await sleep(30_000 * attempt);
   }
   throw lastError;
 }
