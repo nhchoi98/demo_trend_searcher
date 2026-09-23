@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main # the branch tip, not the SHA the run was dispatched at: another run may have committed data/ since
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

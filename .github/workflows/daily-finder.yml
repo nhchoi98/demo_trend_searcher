@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 45 # loop 1 plus one arXiv HTML page (3 s apart) per candidate paper
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main # the branch tip, not the SHA the run was dispatched at: another run may have committed data/ since
 
       - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
 
