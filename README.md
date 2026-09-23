@@ -166,7 +166,6 @@ flowchart TD
 2. **Actions 탭에서 워크플로를 활성화합니다.** fork한 레포는 예약 워크플로가 기본으로 꺼져 있습니다.
 3. Settings → Secrets and variables → Actions에 등록합니다.
    - Secret `OPENAI_API_KEY` (필수. 요약에 씁니다)
-   - Secret `ANTHROPIC_API_KEY` (선택. `compare-backends` 워크플로에서 Claude를 벤치마크에 넣을 때만)
    - Secret `TYPESAFE_API_KEY` (필수. 루프 1 판정에 씁니다)
    - Secret `TEAMS_WEBHOOK_URL` (선택. 없으면 마크다운 리포트만 남깁니다)
    - Variable `FINDER_JEV_MODEL`, `FINDER_ESCALATE_MODEL`, `FINDER_SUMMARY_MODEL` (선택. 모델 교체용)
@@ -314,8 +313,7 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 | `src/compare.ts` | `compare` 명령. 정답셋을 여러 모델로 판정해 Jev와 같은 로그에 남기고, 모델별 정확도·비용 표(`reports/bench.md`)를 렌더 |
 | `src/llm/backend.ts` | `DecisionBackend`(choice·noul·score 질문에 답하는 `ask()`)와 `TextBackend`(글쓰기) 인터페이스 |
 | `src/llm/jev.ts` | `DecisionBackend`의 Jev 구현 (`@typesafe-ai/sdk`) |
-| `src/llm/openai.ts` | 같은 질문 형식을 structured output으로 흉내 내는 OpenAI(호환 엔드포인트 포함) 구현, 그리고 글쓰기 구현 |
-| `src/llm/anthropic.ts` | 같은 질문 형식의 Claude 구현(공식 SDK, structured output). 벤치마크 전용 |
+| `src/llm/openai.ts` | 같은 질문 형식을 structured output으로 흉내 내는 OpenAI 구현, 그리고 글쓰기 구현 |
 | `src/loops/triage.ts` | 루프 1: 질문 구성, 코드에서의 종합(`combine`), 판단 로그, 선택적 재판정 |
 | `src/paper.ts` | 모델에 보여줄 논문 표현. 판단에 필요한 제목·카테고리·초록만 넘깁니다 |
 | `src/loops/summarize.ts` | 루프 2: 요약. 제목과 초록에 있는 내용만 사용 |
@@ -379,16 +377,15 @@ priority 0.87 · World Models · core (0.91) · method · h-index 22 · A. Kim, 
 여러 모델을 같은 질문으로 돌려 정확도와 비용을 한 표로 보려면 `compare` 명령을 씁니다. GitHub Actions의 `compare-backends` 워크플로를 수동 실행하거나(모델 목록·날짜 입력 가능) 로컬에서 돌립니다.
 
 ```bash
-node src/cli.ts compare --model gpt-5-mini,gpt-5-nano                  # OpenAI (접두어 없음)
-node src/cli.ts compare --model anthropic:claude-haiku-4-5,anthropic:claude-sonnet-5
+node src/cli.ts compare --model gpt-5-mini,gpt-5-nano                  # 정답셋에 두 모델을 돌리고 reports/bench.md 갱신
 node src/cli.ts compare                                               # 호출 없이 기존 로그로 bench.md만 다시 렌더
 node src/cli.ts compare --model gpt-5 --date 2026-09-21               # 정답셋 대신 그 날짜의 논문 전부(비쌈)
 ```
 
-모델은 `제공자:이름`으로 적고 접두어가 없으면 OpenAI입니다. 제공자마다 키 변수가 다르며(`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) 한 번에 여러 제공자를 섞어 돌릴 수 있습니다. 워크플로에서는 같은 이름의 시크릿을 씁니다. Claude는 공식 SDK의 structured output으로 호출합니다. 어느 쪽이든 응답이 알려준 실제 모델명은 `decisions.jsonl`의 `served`에 남아 bench.md의 "served as" 열에 보입니다.
+`--model`은 OpenAI 모델 이름의 콤마 목록입니다. 응답이 알려준 실제 모델명(날짜가 붙은 스냅샷 등)이 요청한 이름과 다르면 `decisions.jsonl`의 `served`에 남아 bench.md의 "served as" 열에 보입니다.
 
 - **정답셋 `data/gold.jsonl`**: 한 줄이 `{id, label, source, runDate}`입니다. `source: "panel"`은 Jev와 GPT-5가 갈린 논문을 답을 보지 않은 패널 3명이 라벨한 다수결, `"agreed"`는 둘이 같은 답을 낸 논문에서 라벨별로 고르게 뽑은 표본입니다(2026-09-21 기준 249건). 하루 700건을 모델마다 돌리는 대신 이 고정 셋만 돌리므로 모델 하나 추가 비용이 1/3 이하입니다. 라벨을 더하려면 줄을 붙이면 됩니다.
-- **모델**: 모든 생성형 모델은 Jev와 같은 15개 질문을 한 JSON 스키마로 받습니다(`src/llm/openai.ts`의 `decisionSchema()`가 만들고 Claude 백엔드도 같은 것을 씁니다). 이미 답한 (모델, 논문) 쌍은 건너뛰므로 중간에 실패해도 다시 돌리면 이어지고, 결과는 누적됩니다. OpenRouter 같은 라우터는 쓰지 않습니다. 기본 설정이 가격 기준으로 제공자를 고르고 제공자마다 양자화가 달라 무엇이 실행됐는지 흐려지기 때문입니다. 이미 답한 (모델, 논문) 쌍은 건너뛰므로 중간에 실패해도 다시 돌리면 이어지고, 결과는 누적됩니다.
+- **모델**: 각 모델은 `src/llm/openai.ts`의 structured output 백엔드로 Jev와 같은 15개 질문을 한 JSON 스키마로 받습니다. 이미 답한 (모델, 논문) 쌍은 건너뛰므로 중간에 실패해도 다시 돌리면 이어지고, 결과는 누적됩니다. OpenRouter 같은 라우터는 쓰지 않습니다. 기본 설정이 가격 기준으로 제공자를 고르고 제공자마다 양자화가 달라 무엇이 실행됐는지 흐려지기 때문입니다. 이미 답한 (모델, 논문) 쌍은 건너뛰므로 중간에 실패해도 다시 돌리면 이어지고, 결과는 누적됩니다.
 - **`reports/bench.md`**: 로그에 있는 모든 `backend:model`(Jev 포함)을 정답셋으로 채점한 표입니다. label 정확도, 포함(core/adjacent vs irrelevant) 정확도·precision·recall, 평균 입력·출력 토큰, 평균 지연, 그리고 `finder.config.ts`의 `models.pricing`(모델명 → 1M 토큰당 USD)으로 계산한 1000건당 예상 비용입니다. API는 토큰 수만 돌려주고 금액은 주지 않으므로 단가표가 코드 쪽에 있어야 합니다. 2026-09 기준 Jev·gpt-5 계열 값이 들어 있고, 새 모델을 돌리면 그 모델의 단가를 한 줄 추가하세요. 없는 모델은 `-`로 나옵니다. "served as" 열은 요청한 이름과 실제로 실행됐다고 응답한 모델이 다를 때 그 값입니다(날짜가 붙은 스냅샷, 라우터 뒤의 실제 모델·제공자). 아래에 모델별 혼동 행렬과 Jev와 갈린 논문 목록(정답 열 포함)이 이어집니다. 같은 가격표로 매일 실행 로그에도 루프 1의 예상 비용이 한 줄 찍힙니다.
 
 ```sql
