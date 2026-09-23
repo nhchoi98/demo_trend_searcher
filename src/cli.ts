@@ -1,12 +1,15 @@
+import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import baseConfig from "../finder.config.ts";
 import { checkCitations } from "./citations.ts";
+import { compare } from "./compare.ts";
 import { applyEnv } from "./config.ts";
 import { createJevClient, JevDecisionBackend } from "./llm/jev.ts";
 import { createOpenAIClient, OpenAIDecisionBackend, OpenAITextBackend } from "./llm/openai.ts";
 import { run, type Backends } from "./pipeline.ts";
+import { localDate } from "./util.ts";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -22,7 +25,12 @@ function reportBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
 async function main(): Promise<number> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { "dry-run": { type: "boolean", default: false }, "after-days": { type: "string", default: "30" } },
+    options: {
+      "dry-run": { type: "boolean", default: false },
+      "after-days": { type: "string", default: "30" },
+      date: { type: "string" },
+      model: { type: "string" },
+    },
   });
   const env = process.env;
   const s2Key = env.SEMANTIC_SCHOLAR_API_KEY ? { semanticScholarApiKey: env.SEMANTIC_SCHOLAR_API_KEY } : {};
@@ -31,13 +39,30 @@ async function main(): Promise<number> {
     await checkCitations({ rootDir, afterDays: Number(values["after-days"]), ...(s2Key.semanticScholarApiKey ? { apiKey: s2Key.semanticScholarApiKey } : {}) });
     return 0;
   }
+  if (positionals[0] === "compare") {
+    if (!env.OPENAI_API_KEY) {
+      console.error("OPENAI_API_KEY not set");
+      return 2;
+    }
+    const config = applyEnv(baseConfig, env);
+    const date = values.date ?? localDate(config.report.timezone);
+    const backend = new OpenAIDecisionBackend(createOpenAIClient(env.OPENAI_API_KEY), values.model ?? config.models.escalate);
+    const markdown = await compare({ rootDir, config, backend, date });
+    const path = join(rootDir, "reports", `compare-${date}.md`);
+    await writeFile(path, markdown);
+    console.log(markdown);
+    console.log(`[compare] wrote ${path}`);
+    return 0;
+  }
   if (positionals[0] !== "run") {
     console.error(
       [
         "usage: node src/cli.ts run [--dry-run]",
         "       node src/cli.ts citations [--after-days 30]",
+        "       node src/cli.ts compare [--date YYYY-MM-DD] [--model gpt-5]",
         "  --dry-run     fetch and dedupe only: no LLM calls, no writes, no posting",
         "  citations     record citation counts of papers reported --after-days ago (data/citations.jsonl)",
+        "  compare       re-judge one day's papers with an OpenAI model and diff against Jev (reports/compare-<date>.md)",
       ].join("\n"),
     );
     return 2;

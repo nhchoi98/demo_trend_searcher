@@ -305,6 +305,7 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 | `src/sources/arxiv.ts` | arXiv API 수집. 카테고리 전체 페이지네이션 또는 주제별 키워드 쿼리, 요청 간 3초 간격 |
 | `src/sources/semanticscholar.ts` | Semantic Scholar 배치 조회(500건씩). 저자 h-index와 인용 수 |
 | `src/citations.ts` | `citations` 명령. 리포트된 지 N일 지난 논문의 인용 수를 한 번씩 기록 |
+| `src/compare.ts` | `compare` 명령. 하루치 논문을 OpenAI 백엔드로 다시 판정해 Jev와 나란히 기록하고 차이를 정리 |
 | `src/llm/backend.ts` | `DecisionBackend`(choice·noul·score 질문에 답하는 `ask()`)와 `TextBackend`(글쓰기) 인터페이스 |
 | `src/llm/jev.ts` | `DecisionBackend`의 Jev 구현 (`@typesafe-ai/sdk`) |
 | `src/llm/openai.ts` | 같은 질문 형식을 structured output으로 흉내 내는 OpenAI 구현, 그리고 글쓰기 구현 |
@@ -362,7 +363,15 @@ priority 0.87 · World Models · core (0.91) · method · h-index 22 · A. Kim, 
  "inputTokens":812}
 ```
 
-두 백엔드의 숫자는 같은 뜻이 아닙니다. Jev의 confidence는 모델의 확률 분포에서 계산된 값이고, OpenAI 쪽은 모델이 스스로 적어낸 숫자입니다. 같은 임계값으로 둘을 다루기 전에 직접 재보세요. 논문 100~200건에 정답 라벨을 달고 아래처럼 조인하면 백엔드별 정확도와 confidence 구간별 실제 정답률이 나옵니다. `gate.escalate`를 켜고 돌린 기간에는 경계 논문마다 같은 `inputHash`로 두 백엔드의 답이 나란히 남으므로 바로 비교할 수 있습니다.
+하루치 논문을 OpenAI 모델로 다시 판정해 Jev와 나란히 놓으려면 `compare` 명령을 씁니다. GitHub Actions의 `compare-backends` 워크플로를 수동 실행하거나(날짜·모델 입력 가능) 로컬에서 돌립니다.
+
+```bash
+node src/cli.ts compare --date 2026-09-21 --model gpt-5
+```
+
+`data/papers.jsonl`에서 그 날짜의 논문 id를 모아 arXiv에서 본문을 다시 받고, Jev와 같은 15개 질문을 OpenAI 백엔드에 던져 `data/decisions.jsonl`에 `backend: "openai"`로 덧붙입니다. 이미 답이 있는 논문은 건너뛰므로 중간에 실패해도 다시 돌리면 이어집니다. 결과는 `reports/compare-<날짜>.md`에 남습니다: 질문별 일치율, label 혼동 행렬, label이 갈린 논문 목록. 갈린 논문을 사람이 읽고 누가 맞았는지 표시하면 그것이 정답 셋이 됩니다. 요약(루프 2)은 돌리지 않으니 비용은 판정 호출뿐입니다.
+
+두 백엔드의 숫자는 같은 뜻이 아닙니다. Jev의 confidence는 모델의 확률 분포에서 계산된 값이고, OpenAI 쪽은 모델이 스스로 적어낸 숫자입니다. 같은 임계값으로 둘을 다루기 전에 직접 재보세요. 논문 100~200건에 정답 라벨을 달고 아래처럼 조인하면 백엔드별 정확도와 confidence 구간별 실제 정답률이 나옵니다. OpenAI 백엔드는 확률 분포를 주지 않아 includeProbability가 0 또는 1이 되므로, 비교는 priority 순위보다 label과 포함 여부로 보는 편이 맞습니다.
 
 ```sql
 -- DuckDB 예시: 백엔드별, label과 그 confidence 구간별 건수

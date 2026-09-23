@@ -209,3 +209,18 @@ export async function fetchArxiv(
     ? fetchByCategory(config, since, now, fetchText)
     : fetchByKeyword(config, since, fetchText);
 }
+
+/** Re-fetch known papers by id (for replaying decisions on another backend). */
+export async function fetchByIds(ids: readonly string[], config: FinderConfig, fetchText: FetchText = fetchWithRetry): Promise<Paper[]> {
+  const out: Paper[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    if (i > 0) await sleep(config.arxiv.requestDelayMs);
+    const chunk = ids.slice(i, i + 100);
+    const params = new URLSearchParams({ id_list: chunk.join(","), max_results: String(chunk.length) });
+    for (const paper of parseFeedPage(await fetchText(`${API}?${params}`), []).papers) {
+      paper.matchedTopics = matchTopics(paper, config.topics);
+      out.push(paper);
+    }
+  }
+  return out;
+}

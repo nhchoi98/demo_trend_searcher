@@ -1,0 +1,46 @@
+name: compare-backends
+
+# Manual: re-judge one day's papers with an OpenAI model and diff against Jev.
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "runDate to replay (YYYY-MM-DD, default today KST)"
+        required: false
+      model:
+        description: "OpenAI model (default FINDER_ESCALATE_MODEL / config)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-finder # shares data/ with the finder; never write it concurrently
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Compare
+        run: node src/cli.ts compare ${{ inputs.date && format('--date {0}', inputs.date) }} ${{ inputs.model && format('--model {0}', inputs.model) }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FINDER_ESCALATE_MODEL: ${{ vars.FINDER_ESCALATE_MODEL }}
+      - name: Commit decisions and comparison
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data reports
+          git diff --cached --quiet && exit 0
+          git commit -m "compare: $(TZ=Asia/Seoul date +%F)"
+          git push
