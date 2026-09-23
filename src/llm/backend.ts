@@ -77,6 +77,8 @@ export interface AskResult<Q extends Questions> {
   /** The concrete model that answered (e.g. "jev-1.13.0"), not the alias that was requested. */
   model: string;
   inputTokens: number;
+  /** 0 for Jev: it emits probabilities, not tokens. */
+  outputTokens: number;
 }
 
 /** JSON-like state. Keep it to what the decision needs: unrelated content lowers accuracy. */

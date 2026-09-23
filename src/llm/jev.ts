@@ -72,6 +72,7 @@ export class JevDecisionBackend implements DecisionBackend {
       backend: this.id,
       model: response.model,
       inputTokens: response.usage.input_tokens,
+      outputTokens: 0,
     };
   }
 }

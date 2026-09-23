@@ -28,6 +28,7 @@ function result(
     backend: "x",
     model: "m",
     inputTokens: 0,
+    outputTokens: 0,
     answers: {
       label: { type: "choice", choice: label, confidence: labelConfidence, ...(probabilities ? { probabilities } : {}) },
       topic: { type: "choice", choice: "world-model", confidence: 0.8 },

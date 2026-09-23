@@ -1,14 +1,18 @@
 name: compare-backends
 
-# Manual: re-judge one day's papers with an OpenAI model and diff against Jev.
+# Manual: judge the gold set (data/gold.jsonl) with one or more OpenAI-compatible
+# models and refresh reports/bench.md. Already-answered (model, paper) pairs are skipped.
 on:
   workflow_dispatch:
     inputs:
-      date:
-        description: "runDate to replay (YYYY-MM-DD, default today KST)"
+      models:
+        description: "comma-separated model names (default FINDER_ESCALATE_MODEL / config)"
         required: false
-      model:
-        description: "OpenAI model (default FINDER_ESCALATE_MODEL / config)"
+      base_url:
+        description: "OpenAI-compatible base URL (e.g. https://openrouter.ai/api/v1); uses secret COMPAT_API_KEY"
+        required: false
+      date:
+        description: "replay every paper of this runDate (YYYY-MM-DD) instead of the gold set"
         required: false
 
 permissions:
@@ -31,11 +35,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Compare
-        run: node src/cli.ts compare ${{ inputs.date && format('--date {0}', inputs.date) }} ${{ inputs.model && format('--model {0}', inputs.model) }}
+        run: node src/cli.ts compare --model "${{ inputs.models || vars.FINDER_ESCALATE_MODEL || 'gpt-5' }}" ${{ inputs.date && format('--date {0}', inputs.date) }}
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          FINDER_ESCALATE_MODEL: ${{ vars.FINDER_ESCALATE_MODEL }}
-      - name: Commit decisions and comparison
+          OPENAI_API_KEY: ${{ inputs.base_url && secrets.COMPAT_API_KEY || secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ inputs.base_url }}
+      - name: Commit decisions and benchmark
         if: always()
         run: |
           git config user.name "github-actions[bot]"

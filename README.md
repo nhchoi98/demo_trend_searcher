@@ -305,7 +305,7 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 | `src/sources/arxiv.ts` | arXiv API 수집. 카테고리 전체 페이지네이션 또는 주제별 키워드 쿼리, 요청 간 3초 간격 |
 | `src/sources/semanticscholar.ts` | Semantic Scholar 배치 조회(500건씩). 저자 h-index와 인용 수 |
 | `src/citations.ts` | `citations` 명령. 리포트된 지 N일 지난 논문의 인용 수를 한 번씩 기록 |
-| `src/compare.ts` | `compare` 명령. 하루치 논문을 OpenAI 백엔드로 다시 판정해 Jev와 나란히 기록하고 차이를 정리 |
+| `src/compare.ts` | `compare` 명령. 정답셋을 여러 모델로 판정해 Jev와 같은 로그에 남기고, 모델별 정확도·비용 표(`reports/bench.md`)를 렌더 |
 | `src/llm/backend.ts` | `DecisionBackend`(choice·noul·score 질문에 답하는 `ask()`)와 `TextBackend`(글쓰기) 인터페이스 |
 | `src/llm/jev.ts` | `DecisionBackend`의 Jev 구현 (`@typesafe-ai/sdk`) |
 | `src/llm/openai.ts` | 같은 질문 형식을 structured output으로 흉내 내는 OpenAI 구현, 그리고 글쓰기 구현 |
@@ -316,8 +316,10 @@ Jev는 채팅 모델이 아닙니다. 글자를 생성하지 않고, 미리 정�
 | `src/sinks/teams.ts` | Adaptive Card 게시. 페이로드 크기 제한에 맞춰 항목 수를 줄입니다 |
 | `data/papers.jsonl` | 지금까지 본 논문과 판정 결과. 중복 방지와 트렌드 집계의 원천. 탈락한 논문은 id·라벨·confidence·포함 확률만 남깁니다 |
 | `data/decisions.jsonl` | 모든 판단 호출의 로그(백엔드, 모델, 입력 해시, 질문별 답과 확실성, 입력 토큰) |
+| `data/gold.jsonl` | 정답 라벨(id, label, source, runDate). 벤치마크 채점용 |
 | `data/citations.jsonl` | 리포트 논문의 인용 수 확인 기록(id, 실행일, 확인 시각, 경과 일수, 인용 수, 영향력 인용 수) |
 | `reports/<날짜>.md` | 그날의 마크다운 리포트. 통과한 논문이 없는 날은 파일을 만들지 않습니다 |
+| `reports/bench.md` | 루프 1 모델 벤치마크. `compare` 명령이 덮어씁니다 |
 | `test/` | 파이프라인·판정·arXiv 파서 테스트와 피드 픽스처 |
 
 ## 리포트 형식
@@ -363,15 +365,19 @@ priority 0.87 · World Models · core (0.91) · method · h-index 22 · A. Kim, 
  "inputTokens":812}
 ```
 
-하루치 논문을 OpenAI 모델로 다시 판정해 Jev와 나란히 놓으려면 `compare` 명령을 씁니다. GitHub Actions의 `compare-backends` 워크플로를 수동 실행하거나(날짜·모델 입력 가능) 로컬에서 돌립니다.
+여러 모델을 같은 질문으로 돌려 정확도와 비용을 한 표로 보려면 `compare` 명령을 씁니다. GitHub Actions의 `compare-backends` 워크플로를 수동 실행하거나(모델 목록·base URL·날짜 입력 가능) 로컬에서 돌립니다.
 
 ```bash
-node src/cli.ts compare --date 2026-09-21 --model gpt-5
+node src/cli.ts compare --model gpt-5-mini,gpt-5      # 정답셋에 두 모델을 돌리고 reports/bench.md 갱신
+node src/cli.ts compare                               # 호출 없이 기존 로그로 bench.md만 다시 렌더
+node src/cli.ts compare --model gpt-5 --date 2026-09-21   # 정답셋 대신 그 날짜의 논문 전부(비쌈)
+OPENAI_BASE_URL=https://openrouter.ai/api/v1 OPENAI_API_KEY=<openrouter 키> \
+  node src/cli.ts compare --model anthropic/claude-sonnet-4.5,google/gemini-2.5-flash
 ```
 
-`data/papers.jsonl`에서 그 날짜의 논문 id를 모아 arXiv에서 본문을 다시 받고, Jev와 같은 15개 질문을 OpenAI 백엔드에 던져 `data/decisions.jsonl`에 `backend: "openai"`로 덧붙입니다. 이미 답이 있는 논문은 건너뛰므로 중간에 실패해도 다시 돌리면 이어집니다. 결과는 `reports/compare-<날짜>.md`에 남습니다: 질문별 일치율, label 혼동 행렬, label이 갈린 논문 목록. 갈린 논문을 사람이 읽고 누가 맞았는지 표시하면 그것이 정답 셋이 됩니다. 요약(루프 2)은 돌리지 않으니 비용은 판정 호출뿐입니다.
-
-두 백엔드의 숫자는 같은 뜻이 아닙니다. Jev의 confidence는 모델의 확률 분포에서 계산된 값이고, OpenAI 쪽은 모델이 스스로 적어낸 숫자입니다. 같은 임계값으로 둘을 다루기 전에 직접 재보세요. 논문 100~200건에 정답 라벨을 달고 아래처럼 조인하면 백엔드별 정확도와 confidence 구간별 실제 정답률이 나옵니다. OpenAI 백엔드는 확률 분포를 주지 않아 includeProbability가 0 또는 1이 되므로, 비교는 priority 순위보다 label과 포함 여부로 보는 편이 맞습니다.
+- **정답셋 `data/gold.jsonl`**: 한 줄이 `{id, label, source, runDate}`입니다. `source: "panel"`은 Jev와 GPT-5가 갈린 논문을 답을 보지 않은 패널 3명이 라벨한 다수결, `"agreed"`는 둘이 같은 답을 낸 논문에서 라벨별로 고르게 뽑은 표본입니다(2026-09-21 기준 249건). 하루 700건을 모델마다 돌리는 대신 이 고정 셋만 돌리므로 모델 하나 추가 비용이 1/3 이하입니다. 라벨을 더하려면 줄을 붙이면 됩니다.
+- **모델**: `--model`은 콤마 목록이고, 각 모델은 `src/llm/openai.ts`의 structured output 백엔드로 Jev와 같은 15개 질문을 받습니다. OpenAI SDK가 `OPENAI_BASE_URL`을 읽으므로 OpenRouter·vLLM 같은 OpenAI 호환 엔드포인트를 코드 변경 없이 쓸 수 있습니다(json_schema 응답 형식을 지원하는 모델이어야 합니다). 이미 답한 (모델, 논문) 쌍은 건너뛰므로 중간에 실패해도 다시 돌리면 이어지고, 결과는 누적됩니다.
+- **`reports/bench.md`**: 로그에 있는 모든 `backend:model`(Jev 포함)을 정답셋으로 채점한 표입니다. label 정확도, 포함(core/adjacent vs irrelevant) 정확도·precision·recall, 평균 입력·출력 토큰, 평균 지연, 그리고 `finder.config.ts`의 `models.pricing`(모델명 → 1M 토큰당 USD)으로 계산한 1000건당 예상 비용입니다. 가격은 직접 채워 넣어야 하고, 없는 모델은 `-`로 나옵니다. 아래에 모델별 혼동 행렬과 Jev와 갈린 논문 목록(정답 열 포함)이 이어집니다. 같은 가격표로 매일 실행 로그에도 루프 1의 예상 비용이 한 줄 찍힙니다.
 
 ```sql
 -- DuckDB 예시: 백엔드별, label과 그 confidence 구간별 건수

@@ -8,6 +8,7 @@ import { renderMarkdown, type RunStats } from "./report.ts";
 import { buildCard, postToTeams } from "./sinks/teams.ts";
 import { fetchArxiv } from "./sources/arxiv.ts";
 import { authorHIndex } from "./sources/semanticscholar.ts";
+import { costUsd } from "./compare.ts";
 import { Store } from "./store.ts";
 import type { Paper, ReportItem, SeenRecord } from "./types.ts";
 import { localDate, mapLimit } from "./util.ts";
@@ -85,7 +86,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   }
 
   // Decision-backend usage per "backend:model", for a cost line at the end of the run.
-  const usage = new Map<string, { calls: number; inputTokens: number }>();
+  const usage = new Map<string, { calls: number; inputTokens: number; outputTokens: number; model: string }>();
 
   const results = await mapLimit(batch, config.concurrency, async (paper): Promise<Processed | undefined> => {
     const h = hIndex.get(paper.id);
@@ -93,9 +94,10 @@ export async function run(options: RunOptions): Promise<RunResult> {
     await store.appendDecisions(log);
     for (const record of log) {
       const key = `${record.backend}:${record.model}`;
-      const entry = usage.get(key) ?? { calls: 0, inputTokens: 0 };
+      const entry = usage.get(key) ?? { calls: 0, inputTokens: 0, outputTokens: 0, model: record.model };
       entry.calls++;
       entry.inputTokens += record.inputTokens;
+      entry.outputTokens += record.outputTokens ?? 0;
       usage.set(key, entry);
     }
     const seen: SeenRecord = {
@@ -146,7 +148,10 @@ export async function run(options: RunOptions): Promise<RunResult> {
     }
   }
 
-  for (const [key, u] of usage) console.log(`[run] loop 1 usage ${key}: ${u.calls} calls, ${u.inputTokens} input tokens`);
+  for (const [key, u] of usage) {
+    const usd = costUsd(u.inputTokens, u.outputTokens, u.model, config.models.pricing);
+    console.log(`[run] loop 1 usage ${key}: ${u.calls} calls, ${u.inputTokens} input tokens` + (usd === undefined ? "" : `, est. $${usd.toFixed(2)}`));
+  }
 
   const items = done.map((d) => d.item);
   const stats: RunStats = {

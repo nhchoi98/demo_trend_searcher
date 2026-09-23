@@ -85,6 +85,15 @@ export interface SeenRecord {
   borderline?: boolean;
 }
 
+/** One line of data/gold.jsonl: a human (or panel) label used to score every backend in reports/bench.md. */
+export interface GoldRecord {
+  id: string;
+  label: RelevanceLabel;
+  /** "panel": blind majority vote on a Jev/GPT disagreement; "agreed": Jev and GPT gave the same label, sampled. */
+  source: "panel" | "agreed";
+  runDate: string;
+}
+
 /** One line of data/citations.jsonl: a reported paper's citation count, looked up once, `daysAfter` its run. */
 export interface CitationRecord {
   id: string;
@@ -109,5 +118,8 @@ export interface DecisionRecord {
   inputHash: string;
   answers: Record<string, [string | number | boolean, number]>;
   inputTokens: number;
+  /** Absent in records written before the benchmark fields were added; read as 0. */
+  outputTokens?: number;
+  latencyMs?: number;
   escalatedFrom?: string;
 }

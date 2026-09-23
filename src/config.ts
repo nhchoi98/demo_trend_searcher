@@ -87,6 +87,12 @@ export interface FinderConfig {
     jev: string;
     escalate: string;
     summary: string;
+    /**
+     * USD per 1M tokens, keyed by model name (the `model` field of decisions.jsonl,
+     * e.g. "gpt-5" or "jev-1.13.0"). Only used for the estimated-cost lines in the run
+     * log and in reports/bench.md; a model that is missing here shows "-".
+     */
+    pricing?: Record<string, { input: number; output: number }>;
   };
   report: {
     /** Language of the written summaries, e.g. "Korean". */

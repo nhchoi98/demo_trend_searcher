@@ -59,7 +59,7 @@ class FakeDecide implements DecisionBackend {
         answers[name] = { type: "choice", choice, confidence: this.confidence };
       }
     }
-    return { answers: answers as AnswersFor<Q>, backend: this.id, model: this.model, inputTokens: 100 };
+    return { answers: answers as AnswersFor<Q>, backend: this.id, model: this.model, inputTokens: 100, outputTokens: 0 };
   }
 }
 

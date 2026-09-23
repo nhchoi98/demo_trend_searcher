@@ -11,11 +11,13 @@ export class Store {
   readonly papersPath: string;
   readonly decisionsPath: string;
   readonly citationsPath: string;
+  readonly goldPath: string;
 
   constructor(dataDir: string) {
     this.papersPath = join(dataDir, "papers.jsonl");
     this.decisionsPath = join(dataDir, "decisions.jsonl");
     this.citationsPath = join(dataDir, "citations.jsonl");
+    this.goldPath = join(dataDir, "gold.jsonl");
   }
 
   async loadSeenIds(): Promise<Set<string>> {

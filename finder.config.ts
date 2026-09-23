@@ -77,6 +77,13 @@ export default defineConfig({
     jev: "jev-latest",
     escalate: "gpt-5",
     summary: "gpt-5",
+    // USD per 1M tokens. Check your provider's current price list; these are placeholders
+    // to fill in. Keys are the model names as they appear in data/decisions.jsonl.
+    pricing: {
+      "jev-1.13.0": { input: 0, output: 0 },
+      "gpt-5": { input: 0, output: 0 },
+      "gpt-5-mini": { input: 0, output: 0 },
+    },
   },
 
   report: {

@@ -132,7 +132,7 @@ export function combine(result: AskResult<Questions>, config: FinderConfig, sign
   };
 }
 
-function toRecord(paper: Paper, inputHash: string, result: AskResult<Questions>, escalatedFrom?: string): DecisionRecord {
+function toRecord(paper: Paper, inputHash: string, result: AskResult<Questions>, latencyMs: number, escalatedFrom?: string): DecisionRecord {
   const answers: DecisionRecord["answers"] = {};
   for (const [name, a] of Object.entries(result.answers)) {
     answers[name] =
@@ -147,6 +147,8 @@ function toRecord(paper: Paper, inputHash: string, result: AskResult<Questions>,
     inputHash,
     answers,
     inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    latencyMs: Math.round(latencyMs),
     ...(escalatedFrom ? { escalatedFrom } : {}),
   };
 }
@@ -173,13 +175,15 @@ export async function triagePaper(
   const state = paperState(paper);
   const inputHash = sha256(JSON.stringify([questions, state]));
 
+  const t0 = performance.now();
   const first = await primary.ask(state, questions);
   const firstTriage = combine(first, config, signals);
-  const log = [toRecord(paper, inputHash, first)];
+  const log = [toRecord(paper, inputHash, first, performance.now() - t0)];
   if (!config.gate.escalate || !escalation || firstTriage.labelConfidence >= config.gate.borderlineBelow) {
     return { triage: firstTriage, log };
   }
+  const t1 = performance.now();
   const second = await escalation.ask(state, questions);
-  log.push(toRecord(paper, inputHash, second, `${first.backend}:${first.model}`));
+  log.push(toRecord(paper, inputHash, second, performance.now() - t1, `${first.backend}:${first.model}`));
   return { triage: combine(second, config, signals), log };
 }

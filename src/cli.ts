@@ -9,7 +9,6 @@ import { applyEnv } from "./config.ts";
 import { createJevClient, JevDecisionBackend } from "./llm/jev.ts";
 import { createOpenAIClient, OpenAIDecisionBackend, OpenAITextBackend } from "./llm/openai.ts";
 import { run, type Backends } from "./pipeline.ts";
-import { localDate } from "./util.ts";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -40,17 +39,18 @@ async function main(): Promise<number> {
     return 0;
   }
   if (positionals[0] === "compare") {
-    if (!env.OPENAI_API_KEY) {
+    const models = values.model?.split(",").map((m) => m.trim()).filter(Boolean) ?? [];
+    if (models.length && !env.OPENAI_API_KEY) {
       console.error("OPENAI_API_KEY not set");
       return 2;
     }
     const config = applyEnv(baseConfig, env);
-    const date = values.date ?? localDate(config.report.timezone);
-    const backend = new OpenAIDecisionBackend(createOpenAIClient(env.OPENAI_API_KEY), values.model ?? config.models.escalate);
-    const markdown = await compare({ rootDir, config, backend, date });
-    const path = join(rootDir, "reports", `compare-${date}.md`);
+    // The OpenAI SDK reads OPENAI_BASE_URL itself, so any OpenAI-compatible endpoint works.
+    const backends = models.map((m) => new OpenAIDecisionBackend(createOpenAIClient(env.OPENAI_API_KEY as string), m));
+    const markdown = await compare({ rootDir, config, backends, ...(values.date ? { date: values.date } : {}) });
+    const path = join(rootDir, "reports", "bench.md");
     await writeFile(path, markdown);
-    console.log(markdown);
+    console.log(markdown.split("\n## ")[0]);
     console.log(`[compare] wrote ${path}`);
     return 0;
   }
@@ -59,10 +59,10 @@ async function main(): Promise<number> {
       [
         "usage: node src/cli.ts run [--dry-run]",
         "       node src/cli.ts citations [--after-days 30]",
-        "       node src/cli.ts compare [--date YYYY-MM-DD] [--model gpt-5]",
+        "       node src/cli.ts compare [--model gpt-5-mini,gpt-5] [--date YYYY-MM-DD]",
         "  --dry-run     fetch and dedupe only: no LLM calls, no writes, no posting",
         "  citations     record citation counts of papers reported --after-days ago (data/citations.jsonl)",
-        "  compare       re-judge one day's papers with an OpenAI model and diff against Jev (reports/compare-<date>.md)",
+        "  compare       judge the gold set (or one day's papers) with OpenAI-compatible models, score every model in the log (reports/bench.md)",
       ].join("\n"),
     );
     return 2;

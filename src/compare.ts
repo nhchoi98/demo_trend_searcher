@@ -4,101 +4,130 @@ import type { DecisionBackend } from "./llm/backend.ts";
 import { triagePaper } from "./loops/triage.ts";
 import { fetchByIds } from "./sources/arxiv.ts";
 import { readJsonl, Store } from "./store.ts";
-import type { DecisionRecord, Paper, SeenRecord } from "./types.ts";
+import type { DecisionRecord, GoldRecord, Paper, SeenRecord } from "./types.ts";
 import { mapLimit } from "./util.ts";
 
 export interface CompareOptions {
   rootDir: string;
   config: FinderConfig;
-  /** The challenger. Jev's records for the same papers are already in decisions.jsonl. */
-  backend: DecisionBackend;
-  /** runDate of the papers to replay. */
-  date: string;
+  /** Challengers to run, in order. Empty = only re-render the benchmark from the existing log. */
+  backends: DecisionBackend[];
+  /** Replay every paper of this runDate instead of the gold set. */
+  date?: string;
   fetchPapers?: (ids: string[]) => Promise<Paper[]>;
 }
 
 type Answers = DecisionRecord["answers"];
+type Pricing = NonNullable<FinderConfig["models"]["pricing"]>;
 
 const pct = (n: number, d: number): string => (d ? `${Math.round((100 * n) / d)}%` : "-");
+const mean = (xs: number[]): number => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
+const keyOf = (d: { backend: string; model: string } | DecisionBackend): string => `${"backend" in d ? d.backend : d.id}:${d.model}`;
 
-/**
- * Replays one day's papers through another decision backend, logs its answers
- * next to Jev's in decisions.jsonl (same subjectId and inputHash, different
- * backend), and renders where the two disagree. Already-answered papers are
- * skipped, so a failed run can simply be re-run.
- */
-export async function compare(options: CompareOptions): Promise<string> {
-  const { rootDir, config, backend, date } = options;
-  const store = new Store(join(rootDir, "data"));
-  const ids = (await readJsonl<SeenRecord>(store.papersPath)).filter((s) => s.runDate === date).map((s) => s.id);
-  if (ids.length === 0) throw new Error(`no papers with runDate ${date} in ${store.papersPath}`);
-
-  const isChallenger = (d: DecisionRecord): boolean => d.backend === backend.id && d.model === backend.model;
-  const done = new Set((await readJsonl<DecisionRecord>(store.decisionsPath)).filter(isChallenger).map((d) => d.subjectId));
-  const papers = await (options.fetchPapers ?? ((list) => fetchByIds(list, config)))(ids);
-  const todo = papers.filter((p) => !done.has(p.id));
-  console.log(`[compare] ${date}: ${ids.length} papers, ${todo.length} to ask ${backend.id}:${backend.model}`);
-
-  const results = await mapLimit(todo, config.concurrency, async (paper) => {
-    const { log } = await triagePaper(paper, config, backend, undefined);
-    await store.appendDecisions(log);
-  });
-  for (const r of results) if (!r.ok) console.warn(`[compare] ${r.item.id} failed:`, r.error instanceof Error ? r.error.message : r.error);
-
-  // Latest record per (paper, side). Jev's own escalation records, if any, are not the baseline.
-  const jev = new Map<string, Answers>();
-  const other = new Map<string, Answers>();
-  for (const d of await readJsonl<DecisionRecord>(store.decisionsPath)) {
-    if (d.backend === "jev" && !d.escalatedFrom) jev.set(d.subjectId, d.answers);
-    else if (isChallenger(d)) other.set(d.subjectId, d.answers);
-  }
-  const title = new Map(papers.map((p) => [p.id, p.title]));
-  return render(ids.filter((id) => jev.has(id) && other.has(id)), jev, other, title, backend, config);
+/** USD for one call, or undefined when the model has no price in the config. */
+export function costUsd(inputTokens: number, outputTokens: number, model: string, pricing: Pricing | undefined): number | undefined {
+  const p = pricing?.[model];
+  return p && (inputTokens * p.input + outputTokens * p.output) / 1_000_000;
 }
 
-function render(
-  ids: string[],
-  jev: Map<string, Answers>,
-  other: Map<string, Answers>,
-  title: Map<string, string>,
-  backend: DecisionBackend,
-  config: FinderConfig,
-): string {
-  const a = (m: Map<string, Answers>, id: string, q: string): [string | number | boolean, number] => m.get(id)?.[q] ?? ["?", 0];
-  const agree = (q: string): number => ids.filter((id) => a(jev, id, q)[0] === a(other, id, q)[0]).length;
-  const inc = (m: Map<string, Answers>, id: string): boolean => config.gate.include.includes(String(a(m, id, "label")[0]) as never);
-  const sigDiff = ids.map((id) => Math.abs(Number(a(jev, id, "significance")[0]) - Number(a(other, id, "significance")[0])));
+/**
+ * Replays papers through challenger backends, logs their answers next to Jev's
+ * in decisions.jsonl (same subjectId and inputHash, different backend), and
+ * renders reports/bench.md: every backend:model in the log scored against
+ * data/gold.jsonl, with tokens and estimated cost. Already-answered
+ * (backend, paper) pairs are skipped, so runs accumulate and can be re-run.
+ */
+export async function compare(options: CompareOptions): Promise<string> {
+  const { rootDir, config, backends, date } = options;
+  const store = new Store(join(rootDir, "data"));
+  const seen = await readJsonl<SeenRecord>(store.papersPath);
+  const gold = new Map((await readJsonl<GoldRecord>(store.goldPath)).map((g) => [g.id, g.label]));
+  const ids = date ? seen.filter((s) => s.runDate === date).map((s) => s.id) : [...gold.keys()];
+  if (ids.length === 0) throw new Error(date ? `no papers with runDate ${date} in ${store.papersPath}` : `no gold labels in ${store.goldPath}`);
+
+  const title = new Map(seen.filter((s) => s.title).map((s) => [s.id, s.title as string]));
+  const answered = (key: string, log: DecisionRecord[]): Set<string> => new Set(log.filter((d) => keyOf(d) === key).map((d) => d.subjectId));
+
+  if (backends.length > 0) {
+    const log = await readJsonl<DecisionRecord>(store.decisionsPath);
+    const done = new Map(backends.map((b) => [keyOf(b), answered(keyOf(b), log)]));
+    const todoIds = ids.filter((id) => backends.some((b) => !done.get(keyOf(b))?.has(id)));
+    const papers = todoIds.length ? await (options.fetchPapers ?? ((list) => fetchByIds(list, config)))(todoIds) : [];
+    for (const p of papers) title.set(p.id, p.title);
+    for (const backend of backends) {
+      const todo = papers.filter((p) => !done.get(keyOf(backend))?.has(p.id));
+      console.log(`[compare] ${ids.length} papers, ${todo.length} to ask ${keyOf(backend)}`);
+      const results = await mapLimit(todo, config.concurrency, async (paper) => {
+        const { log: records } = await triagePaper(paper, config, backend, undefined);
+        await store.appendDecisions(records);
+      });
+      for (const r of results) if (!r.ok) console.warn(`[compare] ${keyOf(backend)} ${r.item.id} failed:`, r.error instanceof Error ? r.error.message : r.error);
+    }
+  }
+
+  // Latest record per (model, paper). Jev's own escalation records, if any, are not a model of their own.
+  const byModel = new Map<string, Map<string, DecisionRecord>>();
+  for (const d of await readJsonl<DecisionRecord>(store.decisionsPath)) {
+    if (d.loop !== "triage" || d.escalatedFrom) continue;
+    const m = byModel.get(keyOf(d)) ?? new Map<string, DecisionRecord>();
+    m.set(d.subjectId, d);
+    byModel.set(keyOf(d), m);
+  }
+  return render(ids, gold, byModel, title, config);
+}
+
+function render(ids: string[], gold: Map<string, string>, byModel: Map<string, Map<string, DecisionRecord>>, title: Map<string, string>, config: FinderConfig): string {
   const labels = [...config.gate.include, "irrelevant"];
+  const inc = (label: unknown): boolean => config.gate.include.includes(String(label) as never);
+  const label = (d: DecisionRecord | undefined): string => String(d?.answers.label?.[0] ?? "?");
+  const models = [...byModel.keys()].sort((a, b) => (a.startsWith("jev:") ? -1 : 1) - (b.startsWith("jev:") ? -1 : 1) || a.localeCompare(b));
+  const jevKey = models.find((m) => m.startsWith("jev:"));
+  const jev = jevKey ? byModel.get(jevKey) : undefined;
 
   const lines = [
-    `# Jev vs ${backend.id}:${backend.model}`,
+    "# Loop 1 benchmark",
     "",
-    `${ids.length} papers answered by both. Jev is the baseline; the other column is a generative model imitating the same questions, so its confidences are self-reported and not comparable.`,
+    `${ids.length} papers, ${gold.size} with a gold label (data/gold.jsonl). Jev's confidences come from its probability distribution; generative models write theirs down themselves, so only labels are compared. Cost is estimated from models.pricing in finder.config.ts.`,
     "",
-    "| question | agreement |",
-    "|---|---|",
-    ...["label", "topic", "contribution"].map((q) => `| ${q} | ${pct(agree(q), ids.length)} |`),
-    `| include (label in ${config.gate.include.join("/")}) | ${pct(ids.filter((id) => inc(jev, id) === inc(other, id)).length, ids.length)} |`,
-    `| significance, mean abs level diff | ${(sigDiff.reduce((s, d) => s + d, 0) / (ids.length || 1)).toFixed(2)} |`,
-    "",
-    "## label confusion (rows Jev, columns other)",
-    "",
-    `| | ${labels.join(" | ")} |`,
-    `|---|${labels.map(() => "---").join("|")}|`,
-    ...labels.map(
-      (row) => `| ${row} | ${labels.map((col) => ids.filter((id) => a(jev, id, "label")[0] === row && a(other, id, "label")[0] === col).length).join(" | ")} |`,
-    ),
-    "",
-    "## label disagreements",
-    "",
-    "| id | Jev | other | title |",
-    "|---|---|---|---|",
+    "| model | n (gold) | label acc | include acc | include precision | include recall | in tok | out tok | latency | est. $/1000 papers |",
+    "|---|---|---|---|---|---|---|---|---|---|",
   ];
-  for (const id of ids) {
-    const [jl, jc] = a(jev, id, "label");
-    const [ol, oc] = a(other, id, "label");
-    if (jl === ol) continue;
-    lines.push(`| [${id}](https://arxiv.org/abs/${id}) | ${jl} (${jc}) | ${ol} (${oc}) | ${title.get(id) ?? ""} |`);
+  for (const key of models) {
+    const m = byModel.get(key) as Map<string, DecisionRecord>;
+    const rows = ids.filter((id) => gold.has(id) && m.has(id)).map((id) => [gold.get(id) as string, label(m.get(id))] as const);
+    const tp = rows.filter(([g, p]) => inc(g) && inc(p)).length;
+    const predInc = rows.filter(([, p]) => inc(p)).length;
+    const goldInc = rows.filter(([g]) => inc(g)).length;
+    const all = ids.map((id) => m.get(id)).filter((d): d is DecisionRecord => d !== undefined);
+    const inTok = mean(all.map((d) => d.inputTokens));
+    const outTok = mean(all.map((d) => d.outputTokens ?? 0));
+    const lat = all.filter((d) => d.latencyMs !== undefined).map((d) => d.latencyMs as number);
+    const usd = costUsd(inTok, outTok, key.slice(key.indexOf(":") + 1), config.models.pricing);
+    lines.push(
+      `| ${key} | ${rows.length} | ${pct(rows.filter(([g, p]) => g === p).length, rows.length)} | ${pct(rows.filter(([g, p]) => inc(g) === inc(p)).length, rows.length)} | ${pct(tp, predInc)} | ${pct(tp, goldInc)} | ${Math.round(inTok)} | ${Math.round(outTok)} | ${lat.length ? `${Math.round(mean(lat))} ms` : "-"} | ${usd === undefined ? "-" : `$${(usd * 1000).toFixed(2)}`} |`,
+    );
+  }
+
+  for (const key of models) {
+    const m = byModel.get(key) as Map<string, DecisionRecord>;
+    const rows = ids.filter((id) => gold.has(id) && m.has(id));
+    if (rows.length === 0) continue;
+    lines.push("", `## ${key}: label confusion (rows gold, columns ${key})`, "", `| | ${labels.join(" | ")} |`, `|---|${labels.map(() => "---").join("|")}|`);
+    for (const g of labels) lines.push(`| ${g} | ${labels.map((p) => rows.filter((id) => gold.get(id) === g && label(m.get(id)) === p).length).join(" | ")} |`);
+  }
+
+  if (jev) {
+    for (const key of models) {
+      if (key === jevKey) continue;
+      const m = byModel.get(key) as Map<string, DecisionRecord>;
+      const diff = ids.filter((id) => jev.has(id) && m.has(id) && label(jev.get(id)) !== label(m.get(id)));
+      lines.push("", `## ${jevKey} vs ${key}: label disagreements (${diff.length})`, "", "| id | gold | Jev | other | title |", "|---|---|---|---|---|");
+      for (const id of diff) {
+        const [jl, jc] = jev.get(id)?.answers.label ?? ["?", 0];
+        const [ol, oc] = m.get(id)?.answers.label ?? ["?", 0];
+        lines.push(`| [${id}](https://arxiv.org/abs/${id}) | ${gold.get(id) ?? "-"} | ${jl} (${jc}) | ${ol} (${oc}) | ${title.get(id) ?? ""} |`);
+      }
+    }
   }
   return lines.join("\n") + "\n";
 }
