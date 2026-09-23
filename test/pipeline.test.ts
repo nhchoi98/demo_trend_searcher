@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import base from "../finder.config.ts";
-import type { AnswersFor, AskResult, DecisionBackend, Questions, State, TextBackend, TextSpec } from "../src/llm/backend.ts";
+import type { AnswersFor, AskResult, DecisionBackend, Questions, State, TextBackend, TextSpec, Written } from "../src/llm/backend.ts";
 import { run, type Backends } from "../src/pipeline.ts";
 import { buildCard } from "../src/sinks/teams.ts";
 import { readJsonl } from "../src/store.ts";
@@ -68,7 +68,7 @@ class FakeText implements TextBackend {
   readonly id = "fake";
   readonly model = "fake-writer";
   calls = 0;
-  async write<T>(_spec: TextSpec, _input: string): Promise<T> {
+  async write<T>(_spec: TextSpec, _input: string): Promise<Written<T>> {
     this.calls++;
     const summary: Summary = {
       oneLiner: "One line.",
@@ -77,7 +77,7 @@ class FakeText implements TextBackend {
       results: "Results.",
       whyItMatters: "Why.",
     };
-    return summary as T;
+    return { value: summary as T, inputTokens: 700, outputTokens: 1500 };
   }
 }
 

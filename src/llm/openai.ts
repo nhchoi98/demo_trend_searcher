@@ -8,6 +8,7 @@ import type {
   State,
   TextBackend,
   TextSpec,
+  Written,
 } from "./backend.ts";
 
 interface Structured<T> {
@@ -169,8 +170,9 @@ export class OpenAITextBackend implements TextBackend {
     this.model = model;
   }
 
-  async write<T>(spec: TextSpec, input: string): Promise<T> {
-    return (await structured<T>(this.#client, this.model, spec.name, spec.instruction, input, spec.outputSchema)).value;
+  async write<T>(spec: TextSpec, input: string): Promise<Written<T>> {
+    const { value, inputTokens, outputTokens } = await structured<T>(this.#client, this.model, spec.name, spec.instruction, input, spec.outputSchema);
+    return { value, inputTokens, outputTokens };
   }
 }
 

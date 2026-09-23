@@ -105,8 +105,15 @@ export interface TextSpec {
   outputSchema: JsonSchema;
 }
 
+export interface Written<T> {
+  value: T;
+  inputTokens: number;
+  /** Includes the model's reasoning tokens, which is where most of the cost is. */
+  outputTokens: number;
+}
+
 export interface TextBackend {
   readonly id: string;
   readonly model: string;
-  write<T>(spec: TextSpec, input: string): Promise<T>;
+  write<T>(spec: TextSpec, input: string): Promise<Written<T>>;
 }

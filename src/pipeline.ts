@@ -92,6 +92,13 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
   // Decision-backend usage per "backend:model", for a cost line at the end of the run.
   const usage = new Map<string, { calls: number; inputTokens: number; outputTokens: number; model: string }>();
+  const count = (key: string, model: string, inputTokens: number, outputTokens: number): void => {
+    const entry = usage.get(key) ?? { calls: 0, inputTokens: 0, outputTokens: 0, model };
+    entry.calls++;
+    entry.inputTokens += inputTokens;
+    entry.outputTokens += outputTokens;
+    usage.set(key, entry);
+  };
 
   // The paper's own HTML page (affiliations, figure 1, repo links): one polite GET at a time.
   const fetchHtml = options.fetchHtml ?? serialize(fetchArxivHtml, config.arxiv.requestDelayMs);
@@ -106,14 +113,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     const { answers, log } = judged;
     let { triage } = judged;
     await store.appendDecisions(log);
-    for (const record of log) {
-      const key = `${record.backend}:${record.model}`;
-      const entry = usage.get(key) ?? { calls: 0, inputTokens: 0, outputTokens: 0, model: record.model };
-      entry.calls++;
-      entry.inputTokens += record.inputTokens;
-      entry.outputTokens += record.outputTokens ?? 0;
-      usage.set(key, entry);
-    }
+    for (const record of log) count(`loop 1 ${record.backend}:${record.model}`, record.model, record.inputTokens, record.outputTokens ?? 0);
 
     // Only papers that are in, or that the affiliation bonus could put in, are worth a page fetch.
     let meta: HtmlMeta = { affiliations: [], links: [] };
@@ -143,7 +143,9 @@ export async function run(options: RunOptions): Promise<RunResult> {
       await store.appendSeen([seen]);
       return undefined;
     }
-    const [summary, artifacts] = await Promise.all([summarize(paper, config, backends.text), artifactsOf(paper, meta.links)]);
+    const [written, artifacts] = await Promise.all([summarize(paper, config, backends.text), artifactsOf(paper, meta.links)]);
+    count(`loop 2 ${backends.text.id}:${backends.text.model}`, backends.text.model, written.inputTokens, written.outputTokens);
+    const summary = written.value;
     if (meta.imageUrl) artifacts.imageUrl = meta.imageUrl; // figure 1 beats the README image
     return {
       item: { paper, triage, summary, affiliations, artifacts },
@@ -179,7 +181,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   if (htmlFetches) console.log(`[run] fetched ${htmlFetches} arXiv HTML pages for affiliations, figures and links`);
   for (const [key, u] of usage) {
     const usd = costUsd(u.inputTokens, u.outputTokens, u.model, config.models.pricing);
-    console.log(`[run] loop 1 usage ${key}: ${u.calls} calls, ${u.inputTokens} input tokens` + (usd === undefined ? "" : `, est. $${usd.toFixed(2)}`));
+    console.log(`[run] ${key}: ${u.calls} calls, ${u.inputTokens} input + ${u.outputTokens} output tokens` + (usd === undefined ? "" : `, est. $${usd.toFixed(2)}`));
   }
 
   const items = done.map((d) => d.item);

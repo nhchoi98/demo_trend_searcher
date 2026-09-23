@@ -1,5 +1,5 @@
 import type { FinderConfig } from "../config.ts";
-import type { TextBackend, TextSpec } from "../llm/backend.ts";
+import type { TextBackend, TextSpec, Written } from "../llm/backend.ts";
 import type { Paper, Summary } from "../types.ts";
 import { paperText } from "../paper.ts";
 
@@ -29,6 +29,6 @@ export function summarySpec(config: FinderConfig): TextSpec {
 }
 
 /** Loop 2: prose summary. References are never generated here, only in report.ts. */
-export function summarize(paper: Paper, config: FinderConfig, backend: TextBackend): Promise<Summary> {
+export function summarize(paper: Paper, config: FinderConfig, backend: TextBackend): Promise<Written<Summary>> {
   return backend.write<Summary>(summarySpec(config), paperText(paper));
 }
