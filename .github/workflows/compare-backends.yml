@@ -1,12 +1,11 @@
 name: compare-backends
 
-# Manual: judge the gold set (data/gold.jsonl) with one or more models (OpenAI, Claude,
-# Gemini) and refresh reports/bench.md. Already-answered (model, paper) pairs are skipped.
+# Manual: judge the gold set (data/gold.jsonl) with one or more models (OpenAI, Claude) and refresh reports/bench.md. Already-answered (model, paper) pairs are skipped.
 on:
   workflow_dispatch:
     inputs:
       models:
-        description: "comma-separated: gpt-5-mini, anthropic:claude-haiku-4-5, google:gemini-2.5-flash ... (default FINDER_ESCALATE_MODEL / gpt-5)"
+        description: "comma-separated: gpt-5-mini, anthropic:claude-haiku-4-5, ... (default FINDER_ESCALATE_MODEL / gpt-5)"
         required: false
       date:
         description: "replay every paper of this runDate (YYYY-MM-DD) instead of the gold set"
@@ -36,7 +35,6 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       - name: Commit decisions and benchmark
         if: always()
         run: |

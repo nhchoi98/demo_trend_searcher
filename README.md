@@ -166,7 +166,7 @@ flowchart TD
 2. **Actions 탭에서 워크플로를 활성화합니다.** fork한 레포는 예약 워크플로가 기본으로 꺼져 있습니다.
 3. Settings → Secrets and variables → Actions에 등록합니다.
    - Secret `OPENAI_API_KEY` (필수. 요약에 씁니다)
-   - Secret `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (선택. `compare-backends` 워크플로에서 Claude·Gemini를 벤치마크에 넣을 때만)
+   - Secret `ANTHROPIC_API_KEY` (선택. `compare-backends` 워크플로에서 Claude를 벤치마크에 넣을 때만)
    - Secret `TYPESAFE_API_KEY` (필수. 루프 1 판정에 씁니다)
    - Secret `TEAMS_WEBHOOK_URL` (선택. 없으면 마크다운 리포트만 남깁니다)
    - Variable `FINDER_JEV_MODEL`, `FINDER_ESCALATE_MODEL`, `FINDER_SUMMARY_MODEL` (선택. 모델 교체용)
@@ -381,12 +381,11 @@ priority 0.87 · World Models · core (0.91) · method · h-index 22 · A. Kim, 
 ```bash
 node src/cli.ts compare --model gpt-5-mini,gpt-5-nano                  # OpenAI (접두어 없음)
 node src/cli.ts compare --model anthropic:claude-haiku-4-5,anthropic:claude-sonnet-5
-node src/cli.ts compare --model google:gemini-2.5-flash,google:gemini-2.5-flash-lite
 node src/cli.ts compare                                               # 호출 없이 기존 로그로 bench.md만 다시 렌더
 node src/cli.ts compare --model gpt-5 --date 2026-09-21               # 정답셋 대신 그 날짜의 논문 전부(비쌈)
 ```
 
-모델은 `제공자:이름`으로 적고 접두어가 없으면 OpenAI입니다. 제공자마다 키 변수가 다르며(`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) 한 번에 여러 제공자를 섞어 돌릴 수 있습니다. 워크플로에서는 같은 이름의 시크릿을 씁니다. Claude는 공식 SDK의 structured output으로, Gemini는 Google의 OpenAI 호환 엔드포인트로 호출합니다. 어느 쪽이든 응답이 알려준 실제 모델명은 `decisions.jsonl`의 `served`에 남아 bench.md의 "served as" 열에 보입니다.
+모델은 `제공자:이름`으로 적고 접두어가 없으면 OpenAI입니다. 제공자마다 키 변수가 다르며(`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) 한 번에 여러 제공자를 섞어 돌릴 수 있습니다. 워크플로에서는 같은 이름의 시크릿을 씁니다. Claude는 공식 SDK의 structured output으로 호출합니다. 어느 쪽이든 응답이 알려준 실제 모델명은 `decisions.jsonl`의 `served`에 남아 bench.md의 "served as" 열에 보입니다.
 
 - **정답셋 `data/gold.jsonl`**: 한 줄이 `{id, label, source, runDate}`입니다. `source: "panel"`은 Jev와 GPT-5가 갈린 논문을 답을 보지 않은 패널 3명이 라벨한 다수결, `"agreed"`는 둘이 같은 답을 낸 논문에서 라벨별로 고르게 뽑은 표본입니다(2026-09-21 기준 249건). 하루 700건을 모델마다 돌리는 대신 이 고정 셋만 돌리므로 모델 하나 추가 비용이 1/3 이하입니다. 라벨을 더하려면 줄을 붙이면 됩니다.
 - **모델**: 모든 생성형 모델은 Jev와 같은 15개 질문을 한 JSON 스키마로 받습니다(`src/llm/openai.ts`의 `decisionSchema()`가 만들고 Claude 백엔드도 같은 것을 씁니다). 이미 답한 (모델, 논문) 쌍은 건너뛰므로 중간에 실패해도 다시 돌리면 이어지고, 결과는 누적됩니다. OpenRouter 같은 라우터는 쓰지 않습니다. 기본 설정이 가격 기준으로 제공자를 고르고 제공자마다 양자화가 달라 무엇이 실행됐는지 흐려지기 때문입니다. 이미 답한 (모델, 논문) 쌍은 건너뛰므로 중간에 실패해도 다시 돌리면 이어지고, 결과는 누적됩니다.

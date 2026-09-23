@@ -82,7 +82,7 @@ export default defineConfig({
     escalate: "gpt-5",
     summary: "gpt-5",
     // USD per 1M tokens, standard tier, as published 2026-09 (OpenAI: developers.openai.com/api/docs/pricing;
-    // Anthropic: platform.claude.com pricing; Google: ai.google.dev/gemini-api/docs/pricing; Jev: TypeSafe
+    // Anthropic: platform.claude.com pricing; Jev: TypeSafe
     // early-access price, output is free). Keys are model names as they appear in data/decisions.jsonl.
     pricing: {
       "jev-1.13.0": { input: 0.042, output: 0 },
@@ -92,8 +92,6 @@ export default defineConfig({
       "claude-opus-5": { input: 5, output: 25 },
       "claude-sonnet-5": { input: 2, output: 10 },
       "claude-haiku-4-5": { input: 1, output: 5 },
-      "gemini-2.5-flash": { input: 0.3, output: 2.5 },
-      "gemini-2.5-flash-lite": { input: 0.1, output: 0.4 },
     },
   },
 

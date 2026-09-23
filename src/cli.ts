@@ -29,10 +29,8 @@ function challenger(spec: string, env: NodeJS.ProcessEnv): DecisionBackend {
       return new OpenAIDecisionBackend(createOpenAIClient(key("OPENAI_API_KEY")), model);
     case "anthropic":
       return new AnthropicDecisionBackend(createAnthropicClient(key("ANTHROPIC_API_KEY")), model);
-    case "google":
-      return new OpenAIDecisionBackend(createOpenAIClient(key("GEMINI_API_KEY"), "https://generativelanguage.googleapis.com/v1beta/openai/"), model, "google");
     default:
-      throw new Error(`unknown provider "${provider}" in ${spec}; use openai:, anthropic: or google:`);
+      throw new Error(`unknown provider "${provider}" in ${spec}; use openai: or anthropic:`);
   }
 }
 
@@ -84,10 +82,10 @@ async function main(): Promise<number> {
       [
         "usage: node src/cli.ts run [--dry-run]",
         "       node src/cli.ts citations [--after-days 30]",
-        "       node src/cli.ts compare [--model gpt-5-mini,anthropic:claude-haiku-4-5,google:gemini-2.5-flash] [--date YYYY-MM-DD]",
+        "       node src/cli.ts compare [--model gpt-5-mini,anthropic:claude-haiku-4-5] [--date YYYY-MM-DD]",
         "  --dry-run     fetch and dedupe only: no LLM calls, no writes, no posting",
         "  citations     record citation counts of papers reported --after-days ago (data/citations.jsonl)",
-        "  compare       judge the gold set (or one day's papers) with more models (openai: default, anthropic:, google:), score every model in the log (reports/bench.md)",
+        "  compare       judge the gold set (or one day's papers) with more models (openai: default, anthropic:), score every model in the log (reports/bench.md)",
       ].join("\n"),
     );
     return 2;
