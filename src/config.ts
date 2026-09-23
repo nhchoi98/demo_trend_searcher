@@ -123,6 +123,7 @@ export function applyEnv(config: FinderConfig, env: NodeJS.ProcessEnv): FinderCo
   return {
     ...config,
     models: {
+      ...config.models,
       jev: env.FINDER_JEV_MODEL || config.models.jev,
       escalate: env.FINDER_ESCALATE_MODEL || config.models.escalate,
       summary: env.FINDER_SUMMARY_MODEL || config.models.summary,

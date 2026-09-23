@@ -4,8 +4,8 @@
 
 | model | served as | n (gold) | label acc | include acc | include precision | include recall | in tok | out tok | latency | est. $/1000 papers |
 |---|---|---|---|---|---|---|---|---|---|---|
-| jev:jev-1.13.0 | - | 249 | 91% | 94% | 90% | 100% | 1479 | 0 | - | - |
-| openai:gpt-5 | - | 249 | 45% | 69% | 63% | 100% | 1536 | 0 | - | - |
+| jev:jev-1.13.0 | - | 249 | 91% | 94% | 90% | 100% | 1479 | 0 | - | $0.06 |
+| openai:gpt-5 | - | 249 | 45% | 69% | 63% | 100% | 1536 | 0 | - | $1.92 |
 
 ## jev:jev-1.13.0: label confusion (rows gold, columns jev:jev-1.13.0)
 
