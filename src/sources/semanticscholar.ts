@@ -31,12 +31,19 @@ export async function lookup(ids: readonly string[], fields: string, options: Lo
   for (let i = 0; i < ids.length; i += BATCH) {
     const chunk = ids.slice(i, i + BATCH);
     if (i > 0) await sleep(1000); // the shared unauthenticated pool allows about one request per second
-    const response = await fetchImpl(`${API}?fields=${fields}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(options.apiKey ? { "x-api-key": options.apiKey } : {}) },
-      body: JSON.stringify({ ids: chunk.map((id) => `ARXIV:${id}`) }),
-      signal: AbortSignal.timeout(30_000),
-    });
+    const post = (): Promise<Response> =>
+      fetchImpl(`${API}?fields=${fields}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(options.apiKey ? { "x-api-key": options.apiKey } : {}) },
+        body: JSON.stringify({ ids: chunk.map((id) => `ARXIV:${id}`) }),
+        signal: AbortSignal.timeout(30_000),
+      });
+    let response = await post();
+    if (response.status === 429) {
+      // Even keyed requests get throttled right after a burst; one patient retry usually clears it.
+      await sleep(5_000);
+      response = await post();
+    }
     if (!response.ok) {
       const detail = (await response.text().catch(() => "")).slice(0, 200);
       throw new Error(`Semantic Scholar responded ${response.status}: ${detail}`);

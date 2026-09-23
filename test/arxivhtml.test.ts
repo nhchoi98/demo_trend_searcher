@@ -17,6 +17,8 @@ test("parseArxivHtml: affiliations written after a line break in the author name
   const html = `<span class="ltx_personname">Ada Example<br class="ltx_break">1,2 NVIDIA Research<br class="ltx_break">ada@example.com</span><span class="ltx_personname">Bo Sample<br class="ltx_break">Stanford University</span>`;
   assert.deepEqual(parseArxivHtml(html).affiliations, ["NVIDIA Research", "Stanford University"]);
   assert.deepEqual(parseArxivHtml("<p>no authors, no figures</p>"), { affiliations: [], links: [] });
+  const broken = `<span class="ltx_contact ltx_role_affiliation"><span class="ltx_contact_name">Affiliation: </span>[ </span><span class="ltx_personname">A<br class="ltx_break">1,2</span>`;
+  assert.deepEqual(parseArxivHtml(broken).affiliations, [], "a broken affiliation field is not an affiliation");
 });
 
 test("fetchArxivHtml: a missing page is an empty meta, not a failed paper", async () => {

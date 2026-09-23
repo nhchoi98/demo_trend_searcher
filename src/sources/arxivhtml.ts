@@ -15,6 +15,8 @@ export interface HtmlMeta {
 const HTML_BASE = "https://arxiv.org/html/";
 const NOISE = /github\.com\/(arXiv|brucemiller)\//i;
 
+/** Some papers' affiliation fields render as "[" or "1": a real one has a few letters. */
+const plausible = (text: string): boolean => (text.match(/\p{L}/gu)?.length ?? 0) >= 3 && !text.includes("@");
 const decode = (text: string): string => text.replace(/&amp;/g, "&").replace(/&nbsp;/g, " ");
 const stripTags = (html: string): string => collapseWhitespace(decode(html.replace(/<[^>]+>/g, " ")));
 
@@ -23,7 +25,7 @@ export function parseArxivHtml(html: string): HtmlMeta {
   // LaTeXML marks explicit \affiliation as ltx_role_affiliation ...
   for (const m of html.matchAll(/ltx_role_affiliation">(?:<span class="ltx_contact_name">[^<]*<\/span>)?([^<]+)/g)) {
     const text = collapseWhitespace(decode(m[1] as string).replace(/[;,.\s]+$/, ""));
-    if (text) affiliations.add(text);
+    if (plausible(text)) affiliations.add(text);
   }
   // ... but most papers just put it after a line break inside the author name.
   if (affiliations.size === 0) {
@@ -31,7 +33,7 @@ export function parseArxivHtml(html: string): HtmlMeta {
       const [, ...rest] = (m[1] as string).split(/<br[^>]*>/);
       for (const part of rest) {
         const text = stripTags(part).replace(/^[\d,*†‡§\s]+/, "").replace(/[;,.\s]+$/, "");
-        if (text.length > 2 && !text.includes("@")) affiliations.add(text);
+        if (plausible(text)) affiliations.add(text);
       }
     }
   }
