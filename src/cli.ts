@@ -6,11 +6,35 @@ import baseConfig from "../finder.config.ts";
 import { checkCitations } from "./citations.ts";
 import { compare } from "./compare.ts";
 import { applyEnv } from "./config.ts";
+import { AnthropicDecisionBackend, createAnthropicClient } from "./llm/anthropic.ts";
+import type { DecisionBackend } from "./llm/backend.ts";
 import { createJevClient, JevDecisionBackend } from "./llm/jev.ts";
 import { createOpenAIClient, OpenAIDecisionBackend, OpenAITextBackend } from "./llm/openai.ts";
 import { run, type Backends } from "./pipeline.ts";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * A benchmark model is "provider:name"; no prefix means OpenAI. Each provider
+ * has its own key variable, so one run can mix providers.
+ */
+function challenger(spec: string, env: NodeJS.ProcessEnv): DecisionBackend {
+  const [provider, model] = spec.includes(":") ? (spec.split(/:(.*)/) as [string, string]) : ["openai", spec];
+  const key = (name: string): string => {
+    if (!env[name]) throw new Error(`${name} not set (needed for ${spec})`);
+    return env[name] as string;
+  };
+  switch (provider) {
+    case "openai":
+      return new OpenAIDecisionBackend(createOpenAIClient(key("OPENAI_API_KEY")), model);
+    case "anthropic":
+      return new AnthropicDecisionBackend(createAnthropicClient(key("ANTHROPIC_API_KEY")), model);
+    case "google":
+      return new OpenAIDecisionBackend(createOpenAIClient(key("GEMINI_API_KEY"), "https://generativelanguage.googleapis.com/v1beta/openai/"), model, "google");
+    default:
+      throw new Error(`unknown provider "${provider}" in ${spec}; use openai:, anthropic: or google:`);
+  }
+}
 
 function reportBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
   if (env.REPORT_BASE_URL) return env.REPORT_BASE_URL;
@@ -40,13 +64,14 @@ async function main(): Promise<number> {
   }
   if (positionals[0] === "compare") {
     const models = values.model?.split(",").map((m) => m.trim()).filter(Boolean) ?? [];
-    if (models.length && !env.OPENAI_API_KEY) {
-      console.error("OPENAI_API_KEY not set");
+    const config = applyEnv(baseConfig, env);
+    let backends: DecisionBackend[];
+    try {
+      backends = models.map((m) => challenger(m, env));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
       return 2;
     }
-    const config = applyEnv(baseConfig, env);
-    // The OpenAI SDK reads OPENAI_BASE_URL itself, so any OpenAI-compatible endpoint works.
-    const backends = models.map((m) => new OpenAIDecisionBackend(createOpenAIClient(env.OPENAI_API_KEY as string), m));
     const markdown = await compare({ rootDir, config, backends, ...(values.date ? { date: values.date } : {}) });
     const path = join(rootDir, "reports", "bench.md");
     await writeFile(path, markdown);
@@ -59,10 +84,10 @@ async function main(): Promise<number> {
       [
         "usage: node src/cli.ts run [--dry-run]",
         "       node src/cli.ts citations [--after-days 30]",
-        "       node src/cli.ts compare [--model gpt-5-mini,gpt-5] [--date YYYY-MM-DD]",
+        "       node src/cli.ts compare [--model gpt-5-mini,anthropic:claude-haiku-4-5,google:gemini-2.5-flash] [--date YYYY-MM-DD]",
         "  --dry-run     fetch and dedupe only: no LLM calls, no writes, no posting",
         "  citations     record citation counts of papers reported --after-days ago (data/citations.jsonl)",
-        "  compare       judge the gold set (or one day's papers) with OpenAI-compatible models, score every model in the log (reports/bench.md)",
+        "  compare       judge the gold set (or one day's papers) with more models (openai: default, anthropic:, google:), score every model in the log (reports/bench.md)",
       ].join("\n"),
     );
     return 2;

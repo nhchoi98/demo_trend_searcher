@@ -1,15 +1,12 @@
 name: compare-backends
 
-# Manual: judge the gold set (data/gold.jsonl) with one or more OpenAI-compatible
-# models and refresh reports/bench.md. Already-answered (model, paper) pairs are skipped.
+# Manual: judge the gold set (data/gold.jsonl) with one or more models (OpenAI, Claude,
+# Gemini) and refresh reports/bench.md. Already-answered (model, paper) pairs are skipped.
 on:
   workflow_dispatch:
     inputs:
       models:
-        description: "comma-separated model names (default FINDER_ESCALATE_MODEL / config)"
-        required: false
-      base_url:
-        description: "OpenAI-compatible base URL (e.g. https://openrouter.ai/api/v1); uses secret COMPAT_API_KEY"
+        description: "comma-separated: gpt-5-mini, anthropic:claude-haiku-4-5, google:gemini-2.5-flash ... (default FINDER_ESCALATE_MODEL / gpt-5)"
         required: false
       date:
         description: "replay every paper of this runDate (YYYY-MM-DD) instead of the gold set"
@@ -37,8 +34,9 @@ jobs:
       - name: Compare
         run: node src/cli.ts compare --model "${{ inputs.models || vars.FINDER_ESCALATE_MODEL || 'gpt-5' }}" ${{ inputs.date && format('--date {0}', inputs.date) }}
         env:
-          OPENAI_API_KEY: ${{ inputs.base_url && secrets.COMPAT_API_KEY || secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ inputs.base_url }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       - name: Commit decisions and benchmark
         if: always()
         run: |
