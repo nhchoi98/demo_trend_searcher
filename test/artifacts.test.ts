@@ -36,12 +36,22 @@ test("fetchArtifacts: GitHub licence + README image, Hugging Face weights + lice
 test("fetchArtifacts: nothing linked, repo 404, no licence declared", async () => {
   assert.deepEqual(await fetchArtifacts(paper("No links here."), [], { fetchImpl: fakeFetch({}) }), {});
   const fetchImpl = fakeFetch({
-    "https://api.github.com/repos/o/r": { html_url: "https://github.com/o/r", license: { spdx_id: "NOASSERTION" } },
+    "https://api.github.com/repos/o/r": { html_url: "https://github.com/o/r", license: null },
     "https://huggingface.co/api/arxiv/2609.21045/repos": { models: [] },
     "https://huggingface.co/api/models/o/m": { tags: [] },
   });
   const out = await fetchArtifacts(paper("x"), ["https://github.com/o/r", "https://huggingface.co/o/m"], { fetchImpl });
   assert.deepEqual(out, { code: { url: "https://github.com/o/r" }, weights: { url: "https://huggingface.co/o/m" } });
+});
+
+test("fetchArtifacts: a LICENSE GitHub can't classify is named by its first line", async () => {
+  const text = Buffer.from("\n   LTX-2 Community License Agreement\n   License date: January 5, 2026\n").toString("base64");
+  const fetchImpl = fakeFetch({
+    "https://api.github.com/repos/o/r": { html_url: "https://github.com/o/r", license: { spdx_id: "NOASSERTION", name: "Other" } },
+    "https://api.github.com/repos/o/r/license": { content: text },
+  });
+  const out = await fetchArtifacts(paper("https://github.com/o/r"), [], { fetchImpl });
+  assert.deepEqual(out.code, { url: "https://github.com/o/r", license: "LTX-2 Community License Agreement" });
 });
 
 test("readmeImage: markdown or html, relative or absolute", () => {

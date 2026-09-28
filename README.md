@@ -183,13 +183,37 @@ Node 24 LTS 이상과 pnpm이 필요합니다. 빌드 단계는 없습니다. No
 ```bash
 pnpm install
 pnpm dry-run                              # 수집과 중복 제거만. LLM 호출·파일 쓰기·게시 없음
-cp .env.example .env                      # 키 입력
-node --env-file=.env src/cli.ts run       # 전체 실행
-node src/cli.ts citations --after-days 30 # 리포트된 지 30일 지난 논문의 인용 수 기록 (키 불필요)
+cp .env.example .env                      # 키 입력 (아래 표)
+pnpm start                                # 전체 실행
+pnpm citations --after-days 30            # 리포트된 지 30일 지난 논문의 인용 수 기록 (키 불필요)
+pnpm compare --model gpt-5                # 백엔드 비교 실험
 pnpm typecheck && pnpm test
 ```
 
-SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사내 CA 인증서 경로(WSL/Ubuntu라면 보통 `/etc/ssl/certs/ca-certificates.crt`)를 지정하세요. 없으면 arXiv 호출이 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`로 실패합니다.
+### `.env`는 어떻게 채우나
+
+로컬에서는 Actions의 Secrets·Variables 대신 레포 루트의 `.env`에서 값을 읽습니다. `pnpm start`·`dry-run`·`citations`·`compare`는 모두 `node --env-file-if-exists=.env`로 실행되므로 따로 `export`할 필요가 없습니다. `.env`가 없으면 그냥 셸 환경 변수만 씁니다. `.env`는 `.gitignore`에 들어 있어 커밋되지 않습니다.
+
+```bash
+# .env
+OPENAI_API_KEY=sk-...
+TYPESAFE_API_KEY=...
+TEAMS_WEBHOOK_URL=https://...        # 비워 두면 reports/<날짜>.md만 씁니다
+```
+
+| 변수 | 필수 | 쓰임 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | 예 | 루프 2 요약. 없으면 종료 코드 2 |
+| `TYPESAFE_API_KEY` | 예 | 루프 1 판정(Jev). 없으면 종료 코드 2 |
+| `TEAMS_WEBHOOK_URL` | 아니오 | Teams 게시. 없으면 마크다운 리포트만 남깁니다 |
+| `REPORT_BASE_URL` | 아니오 | Teams 카드의 "Full report" 버튼 링크 기준 URL (예: `https://github.com/<you>/<repo>/blob/main/reports`). 로컬에서는 자동으로 만들 수 없어 없으면 버튼이 빠집니다 |
+| `SEMANTIC_SCHOLAR_API_KEY` | 아니오 | 저자 h-index·인용 조회. 없어도 공용 속도 제한으로 동작합니다 |
+| `GITHUB_TOKEN` | 아니오 | 코드 라이선스·README 조회의 GitHub API 한도를 시간당 60회에서 5000회로 올립니다. 공개 저장소 읽기 권한만 있으면 됩니다. 없으면 한도가 바닥난 뒤 코드 줄이 비어 나옵니다 |
+| `FINDER_JEV_MODEL`, `FINDER_ESCALATE_MODEL`, `FINDER_SUMMARY_MODEL` | 아니오 | `finder.config.ts`의 기본 모델 교체 |
+
+`.env`에 넣은 값보다 셸에서 이미 설정된 환경 변수가 우선합니다. 한 번만 다른 값으로 돌려 보려면 `FINDER_SUMMARY_MODEL=gpt-5-mini pnpm start`처럼 앞에 붙이면 됩니다.
+
+SSL 검사를 하는 사내 프록시 뒤에서는 `NODE_EXTRA_CA_CERTS`에 사내 CA 인증서 경로(WSL/Ubuntu라면 보통 `/etc/ssl/certs/ca-certificates.crt`)를 지정하세요. 없으면 arXiv 호출이 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`로 실패합니다. 이 변수는 Node가 `.env`를 읽기 전에 처리하므로 `.env`에 넣으면 무시됩니다. 셸에서 `export NODE_EXTRA_CA_CERTS=...` 하거나 `~/.bashrc`에 넣으세요.
 
 종료 코드는 세 가지입니다. Actions 실행 목록에서 빨간색이면 아래 중 하나입니다.
 

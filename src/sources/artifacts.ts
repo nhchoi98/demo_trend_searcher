@@ -62,10 +62,16 @@ export async function fetchArtifacts(paper: Paper, links: readonly string[], opt
     const name = `${owner}/${repo.replace(/\.git$/, "")}`;
     const headers = { Accept: "application/vnd.github+json", ...(options.githubToken ? { Authorization: `Bearer ${options.githubToken}` } : {}) };
     await attempt("github", async () => {
-      const info = await getJson<{ html_url: string; license?: { spdx_id?: string } | null }>(fetchImpl, `https://api.github.com/repos/${name}`, headers);
+      const info = await getJson<{ html_url: string; license?: { spdx_id?: string; name?: string } | null }>(fetchImpl, `https://api.github.com/repos/${name}`, headers);
       if (!info) return;
-      const spdx = info.license?.spdx_id;
-      out.code = { url: info.html_url, ...(spdx && spdx !== "NOASSERTION" ? { license: spdx } : {}) };
+      let license = info.license?.spdx_id;
+      // NOASSERTION = a LICENSE file GitHub can't classify (custom/community licences): name it by its first line.
+      if (license === "NOASSERTION") {
+        const file = await getJson<{ content?: string }>(fetchImpl, `https://api.github.com/repos/${name}/license`, headers);
+        const title = file?.content && Buffer.from(file.content, "base64").toString("utf8").split("\n").map((l) => l.trim()).find(Boolean);
+        license = title ? title.slice(0, 60) : info.license?.name;
+      }
+      out.code = { url: info.html_url, ...(license ? { license } : {}) };
       const readme = await getJson<{ content?: string }>(fetchImpl, `https://api.github.com/repos/${name}/readme`, headers);
       const image = readme?.content && readmeImage(Buffer.from(readme.content, "base64").toString("utf8"), owner, repo);
       if (image) out.imageUrl = image;

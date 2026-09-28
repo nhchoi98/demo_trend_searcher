@@ -10,8 +10,10 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node src/cli.ts run",
-    "dry-run": "node src/cli.ts run --dry-run",
+    "start": "node --env-file-if-exists=.env src/cli.ts run",
+    "dry-run": "node --env-file-if-exists=.env src/cli.ts run --dry-run",
+    "citations": "node --env-file-if-exists=.env src/cli.ts citations",
+    "compare": "node --env-file-if-exists=.env src/cli.ts compare",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
   },
