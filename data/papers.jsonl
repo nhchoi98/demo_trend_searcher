@@ -12289,3 +12289,10 @@
 {"id":"2610.12530","version":1,"label":"irrelevant","confidence":0.95,"includeProbability":0.03,"matchedTopics":[],"reported":false,"runDate":"2026-10-12"}
 {"id":"2610.12528","version":1,"label":"irrelevant","confidence":1,"includeProbability":0,"matchedTopics":[],"reported":false,"runDate":"2026-10-12"}
 {"id":"2610.12527","version":1,"label":"irrelevant","confidence":1,"includeProbability":0,"matchedTopics":[],"reported":false,"runDate":"2026-10-12"}
+{"id":"2610.13740","version":1,"label":"core","confidence":1,"includeProbability":1,"matchedTopics":[],"authorHIndex":0,"reported":false,"runDate":"2026-10-13"}
+{"id":"2610.13522","version":1,"label":"core","confidence":0.98,"includeProbability":1,"matchedTopics":["world-model"],"authorHIndex":8,"reported":false,"runDate":"2026-10-13"}
+{"id":"2610.13732","version":1,"label":"core","confidence":0.95,"includeProbability":1,"matchedTopics":[],"authorHIndex":7,"reported":false,"runDate":"2026-10-13"}
+{"id":"2610.13164","version":1,"label":"core","confidence":1,"includeProbability":1,"matchedTopics":["world-model"],"authorHIndex":10,"reported":false,"runDate":"2026-10-13"}
+{"id":"2610.13816","version":1,"label":"core","confidence":0.85,"includeProbability":1,"matchedTopics":["world-model"],"authorHIndex":20,"reported":false,"runDate":"2026-10-13"}
+{"id":"2610.13117","version":1,"label":"core","confidence":1,"includeProbability":1,"matchedTopics":["physical-ai"],"authorHIndex":20,"reported":false,"runDate":"2026-10-13"}
+{"id":"2610.13212","version":1,"label":"core","confidence":0.95,"includeProbability":1,"matchedTopics":["physical-ai"],"authorHIndex":12,"reported":false,"runDate":"2026-10-13"}
