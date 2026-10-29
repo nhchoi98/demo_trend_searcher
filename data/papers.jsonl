@@ -16776,3 +16776,4 @@
 {"id":"2610.35954","version":1,"label":"adjacent","confidence":0.38,"includeProbability":0.66,"matchedTopics":[],"reported":false,"runDate":"2026-10-28"}
 {"id":"2610.33894","version":2,"label":"core","confidence":0.91,"includeProbability":1,"matchedTopics":["world-model"],"reported":false,"runDate":"2026-10-28"}
 {"id":"2610.33794","version":1,"label":"core","confidence":0.59,"includeProbability":0.99,"matchedTopics":[],"reported":false,"runDate":"2026-10-28"}
+{"id":"2610.34649","version":1,"label":"core","confidence":0.73,"includeProbability":1,"matchedTopics":["physical-ai"],"reported":false,"runDate":"2026-10-29"}
